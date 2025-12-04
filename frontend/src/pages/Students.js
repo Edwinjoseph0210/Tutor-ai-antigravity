@@ -8,6 +8,7 @@ const Students = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
   const [formData, setFormData] = useState({ roll_number: '', name: '' });
+  const [photo, setPhoto] = useState(null);
 
   useEffect(() => {
     fetchStudents();
@@ -35,12 +36,20 @@ const Students = () => {
         await studentsAPI.updateStudent(editingStudent.id, formData);
         showAlert('Student updated successfully!', 'success');
       } else {
-        await studentsAPI.addStudent(formData);
+        const formDataToSend = new FormData();
+        formDataToSend.append('roll_number', formData.roll_number);
+        formDataToSend.append('name', formData.name);
+        if (photo) {
+          formDataToSend.append('photo', photo);
+        }
+
+        await studentsAPI.addStudent(formDataToSend);
         showAlert('Student added successfully!', 'success');
       }
       setShowModal(false);
       setEditingStudent(null);
       setFormData({ roll_number: '', name: '' });
+      setPhoto(null);
       fetchStudents();
     } catch (err) {
       showAlert('Error saving student: ' + err.message, 'danger');
@@ -50,6 +59,7 @@ const Students = () => {
   const handleEdit = (student) => {
     setEditingStudent(student);
     setFormData({ roll_number: student[1], name: student[2] });
+    setPhoto(null); // Reset photo for edit mode (edit photo not supported yet)
     setShowModal(true);
   };
 
@@ -67,10 +77,10 @@ const Students = () => {
 
   const showAlert = (message, type) => {
     const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show glass-card border-0 text-white`;
     alertDiv.innerHTML = `
       ${message}
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
     `;
     document.querySelector('main').insertBefore(alertDiv, document.querySelector('main').firstChild);
   };
@@ -87,17 +97,19 @@ const Students = () => {
 
   return (
     <div>
-      <div className="row">
+      <div className="row mb-4">
         <div className="col-12">
-          <div className="d-flex justify-content-between align-items-center mb-4">
-            <h1>
-              <i className="fas fa-users me-2"></i>Students
-            </h1>
-            <button 
+          <div className="d-flex justify-content-between align-items-center">
+            <div>
+              <h1 className="mb-1">Students</h1>
+              <p className="text-muted">Manage student records and photos</p>
+            </div>
+            <button
               className="btn btn-primary"
               onClick={() => {
                 setEditingStudent(null);
                 setFormData({ roll_number: '', name: '' });
+                setPhoto(null);
                 setShowModal(true);
               }}
             >
@@ -108,37 +120,37 @@ const Students = () => {
       </div>
 
       {error && (
-        <div className="alert alert-danger" role="alert">
+        <div className="alert alert-danger glass-card" role="alert">
           <i className="fas fa-exclamation-triangle me-2"></i>{error}
         </div>
       )}
 
-      <div className="card">
-        <div className="card-body">
+      <div className="glass-card">
+        <div className="card-body p-0">
           <div className="table-responsive">
-            <table className="table table-hover">
-              <thead>
+            <table className="table table-hover mb-0">
+              <thead className="bg-transparent">
                 <tr>
-                  <th>ID</th>
-                  <th>Roll Number</th>
-                  <th>Name</th>
-                  <th>Actions</th>
+                  <th className="px-4 border-0">ID</th>
+                  <th className="border-0">Roll Number</th>
+                  <th className="border-0">Name</th>
+                  <th className="px-4 border-0 text-end">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {students.map((student) => (
                   <tr key={student[0]}>
-                    <td>{student[0]}</td>
-                    <td>{student[1]}</td>
-                    <td>{student[2]}</td>
-                    <td>
-                      <button 
+                    <td className="px-4 border-0 text-muted">#{student[0]}</td>
+                    <td className="border-0">{student[1]}</td>
+                    <td className="border-0 fw-medium">{student[2]}</td>
+                    <td className="px-4 border-0 text-end">
+                      <button
                         className="btn btn-sm btn-outline-primary me-2"
                         onClick={() => handleEdit(student)}
                       >
                         <i className="fas fa-edit"></i>
                       </button>
-                      <button 
+                      <button
                         className="btn btn-sm btn-outline-danger"
                         onClick={() => handleDelete(student[0])}
                       >
@@ -155,16 +167,16 @@ const Students = () => {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog">
-            <div className="modal-content">
-              <div className="modal-header">
+        <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(5px)' }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content glass-card border-0">
+              <div className="modal-header border-0">
                 <h5 className="modal-title">
                   {editingStudent ? 'Edit Student' : 'Add Student'}
                 </h5>
-                <button 
-                  type="button" 
-                  className="btn-close" 
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
                   onClick={() => setShowModal(false)}
                 ></button>
               </div>
@@ -172,29 +184,41 @@ const Students = () => {
                 <div className="modal-body">
                   <div className="mb-3">
                     <label className="form-label">Roll Number</label>
-                    <input 
-                      type="text" 
-                      className="form-control" 
+                    <input
+                      type="text"
+                      className="form-control bg-dark text-white border-secondary"
                       value={formData.roll_number}
                       onChange={(e) => setFormData({ ...formData, roll_number: e.target.value })}
-                      required 
+                      required
                     />
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Name</label>
-                    <input 
-                      type="text" 
-                      className="form-control" 
+                    <input
+                      type="text"
+                      className="form-control bg-dark text-white border-secondary"
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      required 
+                      required
                     />
                   </div>
+                  {!editingStudent && (
+                    <div className="mb-3">
+                      <label className="form-label">Photo (Required for Face Recognition)</label>
+                      <input
+                        type="file"
+                        className="form-control bg-dark text-white border-secondary"
+                        accept="image/*"
+                        onChange={(e) => setPhoto(e.target.files[0])}
+                      />
+                      <div className="form-text text-muted">Upload a clear photo of the student's face.</div>
+                    </div>
+                  )}
                 </div>
-                <div className="modal-footer">
-                  <button 
-                    type="button" 
-                    className="btn btn-secondary" 
+                <div className="modal-footer border-0">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
                     onClick={() => setShowModal(false)}
                   >
                     Cancel

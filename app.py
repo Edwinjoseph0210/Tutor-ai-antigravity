@@ -232,10 +232,45 @@ def students():
 @login_required
 def add_student():
     try:
-        data = request.get_json()
-        roll_number = data.get('roll_number')
-        name = data.get('name')
+        # Check if it's a JSON request or multipart
+        if request.is_json:
+            data = request.get_json()
+            roll_number = data.get('roll_number')
+            name = data.get('name')
+        else:
+            roll_number = request.form.get('roll_number')
+            name = request.form.get('name')
+            
+        if not roll_number or not name:
+             return jsonify({'success': False, 'message': 'Roll number and name are required'}), 400
+
         attendance.add_student(roll_number, name)
+        
+        # Handle photo upload
+        if 'photo' in request.files:
+            photo = request.files['photo']
+            if photo.filename != '':
+                # Save photo to faces directory
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                faces_dir = os.path.join(script_dir, "faces")
+                if not os.path.exists(faces_dir):
+                    os.makedirs(faces_dir)
+                
+                # Use name for filename, defaulting to .jpg if no extension
+                _, ext = os.path.splitext(photo.filename)
+                if not ext:
+                    ext = '.jpg'
+                
+                # Sanitize filename to prevent directory traversal or issues
+                # For simplicity, we trust the name but ensure it's safe for FS
+                safe_name = "".join([c for c in name if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+                filename = f"{safe_name}{ext}"
+                
+                photo.save(os.path.join(faces_dir, filename))
+                
+                # Reload faces to include the new one immediately
+                load_known_faces()
+                
         return jsonify({'success': True, 'message': 'Student added successfully'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})

@@ -10,98 +10,55 @@ const Layout = ({ children }) => {
     return location.pathname === path;
   };
 
-  return (
-    <div className="min-vh-100 bg-light">
-      <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div className="container-fluid">
-          <Link className="navbar-brand" to="/dashboard">
-            <i className="fas fa-user-check me-2"></i>AI Face Recognition
-          </Link>
-          <button 
-            className="navbar-toggler" 
-            type="button" 
-            data-bs-toggle="collapse" 
-            data-bs-target="#navbarNav"
-          >
-            <span className="navbar-toggler-icon"></span>
-          </button>
-          <div className="collapse navbar-collapse" id="navbarNav">
-            <ul className="navbar-nav me-auto">
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/dashboard') ? 'active' : ''}`} 
-                  to="/dashboard"
-                >
-                  <i className="fas fa-tachometer-alt me-1"></i>Dashboard
-                </Link>
-              </li>
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/students') ? 'active' : ''}`} 
-                  to="/students"
-                >
-                  <i className="fas fa-users me-1"></i>Students
-                </Link>
-              </li>
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/attendance') ? 'active' : ''}`} 
-                  to="/attendance"
-                >
-                  <i className="fas fa-calendar-check me-1"></i>Attendance
-                </Link>
-              </li>
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/reports') ? 'active' : ''}`} 
-                  to="/reports"
-                >
-                  <i className="fas fa-chart-bar me-1"></i>Reports
-                </Link>
-              </li>
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/class-attendance') ? 'active' : ''}`} 
-                  to="/class-attendance"
-                >
-                  <i className="fas fa-chalkboard-teacher me-1"></i>Class Attendance
-                </Link>
-              </li>
-              <li className="nav-item">
-                <Link 
-                  className={`nav-link ${isActive('/face-recognition') ? 'active' : ''}`} 
-                  to="/face-recognition"
-                >
-                  <i className="fas fa-camera me-1"></i>Face Recognition
-                </Link>
-              </li>
-            </ul>
-            <ul className="navbar-nav">
-              <li className="nav-item dropdown">
-                <button 
-                  className="nav-link dropdown-toggle btn btn-link text-white p-0 border-0" 
-                  id="navbarDropdown" 
-                  data-bs-toggle="dropdown"
-                >
-                  <i className="fas fa-user me-1"></i>{user?.username}
-                </button>
-                <ul className="dropdown-menu">
-                  <li>
-                    <button 
-                      className="dropdown-item" 
-                      onClick={logout}
-                    >
-                      <i className="fas fa-sign-out-alt me-1"></i>Logout
-                    </button>
-                  </li>
-                </ul>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </nav>
+  const NavItem = ({ to, icon, label }) => (
+    <Link
+      to={to}
+      className={`nav-link ${isActive(to) ? 'active' : ''}`}
+    >
+      <i className={`fas ${icon}`}></i>
+      {label}
+    </Link>
+  );
 
-      <main className="container-fluid mt-4">
+  return (
+    <div className="app-container">
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <Link className="sidebar-brand" to="/dashboard">
+          <i className="fas fa-atom fa-lg"></i>
+          <span>Tutor AI</span>
+        </Link>
+
+        <nav className="nav flex-column flex-grow-1">
+          <NavItem to="/dashboard" icon="fa-tachometer-alt" label="Dashboard" />
+          <NavItem to="/face-recognition" icon="fa-camera" label="Face Recognition" />
+          <NavItem to="/class-attendance" icon="fa-chalkboard-teacher" label="Class Attendance" />
+          <NavItem to="/students" icon="fa-users" label="Students" />
+          <NavItem to="/attendance" icon="fa-calendar-check" label="Attendance Logs" />
+          <NavItem to="/reports" icon="fa-chart-bar" label="Reports" />
+        </nav>
+
+        <div className="mt-auto pt-4 border-top border-secondary">
+          <div className="d-flex align-items-center mb-3 px-3">
+            <div className="avatar bg-primary rounded-circle d-flex align-items-center justify-content-center me-3" style={{ width: '40px', height: '40px' }}>
+              <span className="text-white fw-bold">{user?.username?.charAt(0).toUpperCase()}</span>
+            </div>
+            <div className="overflow-hidden">
+              <div className="text-truncate fw-bold text-white">{user?.username}</div>
+              <div className="text-truncate small text-muted">Admin</div>
+            </div>
+          </div>
+          <button
+            onClick={logout}
+            className="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center"
+          >
+            <i className="fas fa-sign-out-alt me-2"></i>Logout
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="main-content">
         <div className="fade-in">
           {children}
         </div>

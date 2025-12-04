@@ -8,7 +8,9 @@ const ClassAttendance = () => {
   const [attendanceStatus, setAttendanceStatus] = useState('');
   const [recognizedStudents, setRecognizedStudents] = useState([]);
   const [cameraActive, setCameraActive] = useState(false);
-  
+  const [cameras, setCameras] = useState([]);
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const recognitionIntervalRef = useRef(null);
@@ -27,15 +29,57 @@ const ClassAttendance = () => {
     return classes.find(cls => cls.id === selectedClass);
   };
 
+  useEffect(() => {
+    getCameras();
+    return () => {
+      stopCamera();
+    };
+  }, []);
+
+  const getCameras = async () => {
+    try {
+      // Request permission first to get labels
+      await navigator.mediaDevices.getUserMedia({ video: true });
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setCameras(videoDevices);
+
+      if (videoDevices.length > 0) {
+        // Try to find Logitech C930e
+        const logitechCamera = videoDevices.find(device =>
+          device.label.toLowerCase().includes('logitech') &&
+          device.label.toLowerCase().includes('c930e')
+        );
+
+        if (logitechCamera) {
+          setSelectedCameraId(logitechCamera.deviceId);
+          setAttendanceStatus('Logitech Webcam C930e detected and selected');
+        } else {
+          setSelectedCameraId(videoDevices[0].deviceId);
+        }
+      }
+    } catch (error) {
+      console.error('Error listing cameras:', error);
+      setAttendanceStatus('Error accessing camera devices: ' + error.message);
+    }
+  };
+
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: 640, 
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          width: 640,
           height: 480,
-          facingMode: 'user'
-        } 
-      });
+          deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -60,13 +104,38 @@ const ClassAttendance = () => {
     }
   };
 
-  const simulateFaceRecognition = () => {
-    // Simulate face recognition - in real implementation, this would be actual face recognition
-    const students = ['John Doe', 'Jane Smith', 'Mike Johnson', 'Sarah Wilson', 'Alex Brown'];
-    const randomStudent = students[Math.floor(Math.random() * students.length)];
-    const confidence = (Math.random() * 20 + 80).toFixed(1);
-    
-    return { name: randomStudent, confidence: confidence };
+  const captureAndRecognize = async () => {
+    if (!videoRef.current) return null;
+
+    // Create a temporary canvas to capture the frame
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const imageData = canvas.toDataURL('image/jpeg');
+
+    try {
+      const response = await fetch('/api/recognize_faces', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ image: imageData })
+      });
+
+      const data = await response.json();
+      if (data.success && data.faces && data.faces.length > 0) {
+        // Return the first recognized face
+        return data.faces[0];
+      }
+    } catch (error) {
+      console.error('Recognition error:', error);
+    }
+    return null;
   };
 
   const startAttendance = async () => {
@@ -82,30 +151,35 @@ const ClassAttendance = () => {
     setAttendanceStatus(`Attendance started for ${getSelectedClassData()?.name} - ${selectedSubject}`);
     setRecognizedStudents([]);
 
-    // Start face recognition simulation
-    recognitionIntervalRef.current = setInterval(() => {
-      const recognition = simulateFaceRecognition();
-      if (recognition.confidence > 85) {
-        setRecognizedStudents(prev => {
-          const exists = prev.find(student => student.name === recognition.name);
-          if (!exists) {
-            return [...prev, { 
-              name: recognition.name, 
-              confidence: recognition.confidence,
-              timestamp: new Date().toLocaleTimeString()
-            }];
-          }
-          return prev;
-        });
+    // Start face recognition loop
+    recognitionIntervalRef.current = setInterval(async () => {
+      const recognition = await captureAndRecognize();
+
+      if (recognition && recognition.name !== 'Unknown') {
+        const confValue = parseFloat(recognition.confidence.replace('%', ''));
+
+        if (confValue > 60) {
+          setRecognizedStudents(prev => {
+            const exists = prev.find(student => student.name === recognition.name);
+            if (!exists) {
+              return [...prev, {
+                name: recognition.name,
+                confidence: recognition.confidence,
+                timestamp: new Date().toLocaleTimeString()
+              }];
+            }
+            return prev;
+          });
+        }
       }
-    }, 2000); // Check every 2 seconds
+    }, 3000); // Check every 3 seconds
   };
 
   const stopAttendance = async () => {
     stopCamera();
     setIsAttendanceActive(false);
     setAttendanceStatus('Attendance session ended');
-    
+
     // Mark attendance for recognized students
     for (const student of recognizedStudents) {
       try {
@@ -114,7 +188,7 @@ const ClassAttendance = () => {
         console.error('Error marking attendance:', error);
       }
     }
-    
+
     setRecognizedStudents([]);
   };
 
@@ -124,12 +198,6 @@ const ClassAttendance = () => {
     setAttendanceStatus('');
     setRecognizedStudents([]);
   };
-
-  useEffect(() => {
-    return () => {
-      stopCamera();
-    };
-  }, []);
 
   return (
     <div>
@@ -160,6 +228,39 @@ const ClassAttendance = () => {
               </h5>
             </div>
             <div className="card-body">
+              {/* Camera Selection */}
+              <div className="mb-4">
+                <label className="form-label fw-bold">Select Camera:</label>
+                <div className="d-flex">
+                  <select
+                    className="form-select"
+                    value={selectedCameraId}
+                    onChange={(e) => {
+                      setSelectedCameraId(e.target.value);
+                      if (isAttendanceActive) {
+                        setAttendanceStatus('Camera changed. Please restart attendance.');
+                        stopAttendance();
+                      }
+                    }}
+                    disabled={isAttendanceActive}
+                  >
+                    {cameras.map(camera => (
+                      <option key={camera.deviceId} value={camera.deviceId}>
+                        {camera.label || `Camera ${camera.deviceId.slice(0, 5)}...`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-outline-secondary ms-2"
+                    onClick={getCameras}
+                    title="Refresh Cameras"
+                    disabled={isAttendanceActive}
+                  >
+                    <i className="fas fa-sync-alt"></i>
+                  </button>
+                </div>
+              </div>
+
               {/* Class Selection */}
               <div className="mb-4">
                 <label className="form-label fw-bold">Select Class:</label>
@@ -219,7 +320,7 @@ const ClassAttendance = () => {
                     <i className="fas fa-stop me-2"></i>End Attendance
                   </button>
                 )}
-                
+
                 <button
                   className="btn btn-outline-secondary"
                   onClick={resetSelection}
@@ -258,8 +359,8 @@ const ClassAttendance = () => {
               {/* Current Session Info */}
               {selectedClass && selectedSubject && (
                 <div className="alert alert-info">
-                  <strong>Current Session:</strong><br/>
-                  <i className="fas fa-users me-1"></i>{getSelectedClassData()?.name}<br/>
+                  <strong>Current Session:</strong><br />
+                  <i className="fas fa-users me-1"></i>{getSelectedClassData()?.name}<br />
                   <i className="fas fa-book me-1"></i>{selectedSubject}
                 </div>
               )}
@@ -281,7 +382,7 @@ const ClassAttendance = () => {
                         <div>
                           <i className="fas fa-user-check me-2 text-success"></i>
                           <strong>{student.name}</strong>
-                          <br/>
+                          <br />
                           <small className="text-muted">Detected at {student.timestamp}</small>
                         </div>
                         <span className="badge bg-success">{student.confidence}%</span>
