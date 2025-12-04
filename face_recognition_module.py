@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import os
 import sys
 import cv2
@@ -8,6 +9,14 @@ import math
 from os import system
 
 system('say Welcome to AI Facial Recognition System. Please wait while we initialise the project. This may take a few seconds depending on the number of faces to be trained.')
+=======
+import cv2
+import os
+import numpy as np
+import face_recognition
+import math
+import sys
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
 
 def face_confidence(face_distance, face_match_threshold=0.6):
     """
@@ -23,6 +32,7 @@ def face_confidence(face_distance, face_match_threshold=0.6):
         return str(round(value, 2)) + '%'
 
 class FaceRecognition:
+<<<<<<< HEAD
     face_locations = []
     face_encodings = []
     face_names = []
@@ -37,11 +47,17 @@ class FaceRecognition:
         Args:
             dataset_path: Path to the directory containing face images (default: "faces")
             auto_encode: If True, automatically encode faces on initialization (default: False)
+=======
+    def __init__(self, dataset_path="faces"):
+        """
+        Initialize the FaceRecognition class.
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
         """
         self.dataset_path = dataset_path
         self.known_face_encodings = []
         self.known_face_names = []
         self.process_current_frame = True
+<<<<<<< HEAD
         self.face_locations = []
         self.face_encodings = []
         self.face_names = []
@@ -95,6 +111,8 @@ class FaceRecognition:
         print(f"\nTotal faces encoded: {len(self.known_face_names)}")
         print(f"Unique persons: {len(set(self.known_face_names))}")
         print(f"Encoded names: {list(set(self.known_face_names))}")
+=======
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
 
     def load_dataset(self):
         """
@@ -230,6 +248,7 @@ class FaceRecognition:
         video_capture.release()
         cv2.destroyAllWindows()
 
+<<<<<<< HEAD
     def run_recognition(self):
         """
         Alternative method name for run() - starts the webcam loop for real-time face recognition.
@@ -305,3 +324,9 @@ if __name__ == "__main__":
     fr = FaceRecognition()
     fr.encode_faces()  # or use fr.load_dataset() - both support folders
     fr.run_recognition()  # or use fr.run()
+=======
+if __name__ == "__main__":
+    fr = FaceRecognition()
+    fr.load_dataset()
+    fr.run()
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)

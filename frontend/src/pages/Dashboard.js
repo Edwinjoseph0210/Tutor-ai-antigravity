@@ -216,7 +216,11 @@ const Dashboard = () => {
                           <td className="border-0 fw-medium">{student.name}</td>
                           <td className="px-4 border-0 text-end">
                             <span className={`badge bg-${student.status === 'Present' ? 'success' :
+<<<<<<< HEAD
                               student.status === 'Partial' ? 'warning' : 'danger'
+=======
+                                student.status === 'Partial' ? 'warning' : 'danger'
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
                               }`}>
                               {student.status}
                             </span>

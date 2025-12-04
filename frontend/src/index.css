@@ -17,7 +17,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--bg-dark);
   color: var(--text-main);
+<<<<<<< HEAD
   background-image:
+=======
+  background-image: 
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
     radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 20%),
     radial-gradient(circle at 90% 80%, rgba(236, 72, 153, 0.15) 0%, transparent 20%);
   min-height: 100vh;
@@ -27,16 +31,25 @@ body {
 ::-webkit-scrollbar {
   width: 8px;
 }
+<<<<<<< HEAD
 
 ::-webkit-scrollbar-track {
   background: var(--bg-dark);
 }
 
+=======
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
 ::-webkit-scrollbar-thumb {
   background: #334155;
   border-radius: 4px;
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
@@ -57,12 +70,16 @@ body {
 }
 
 /* Typography */
+<<<<<<< HEAD
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
+=======
+h1, h2, h3, h4, h5, h6 {
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
   color: var(--text-main);
   font-weight: 600;
   letter-spacing: -0.025em;
@@ -105,8 +122,12 @@ h6 {
 }
 
 /* Inputs */
+<<<<<<< HEAD
 .form-control,
 .form-select {
+=======
+.form-control, .form-select {
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid var(--glass-border);
   color: var(--text-main);
@@ -114,8 +135,12 @@ h6 {
   padding: 0.75rem 1rem;
 }
 
+<<<<<<< HEAD
 .form-control:focus,
 .form-select:focus {
+=======
+.form-control:focus, .form-select:focus {
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
   background: rgba(15, 23, 42, 0.8);
   border-color: var(--primary);
   box-shadow: 0 0 0 2px var(--primary-glow);
@@ -151,6 +176,7 @@ h6 {
 }
 
 @keyframes fadeIn {
+<<<<<<< HEAD
   from {
     opacity: 0;
   }
@@ -170,6 +196,15 @@ h6 {
     opacity: 1;
     transform: translateY(0);
   }
+=======
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
 }
 
 /* Layout */
@@ -282,7 +317,11 @@ h6 {
 /* Auth Pages */
 .login-container {
   background: var(--bg-dark);
+<<<<<<< HEAD
   background-image:
+=======
+  background-image: 
+>>>>>>> 528459e2 (Implement advanced face recognition with Dlib and add student dataset)
     radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 50%);
 }
 
