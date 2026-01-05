@@ -1,0 +1,8 @@
+{
+  "name": "tutor-ai-antigravity",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "bash start_servers.sh",
+    "install-all": "pip install -r requirements.txt && cd frontend && npm install"
+  }
+}

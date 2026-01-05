@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Login - AI Face Recognition System{% endblock %}
+
+{% block content %}
+<div class="login-wrapper">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="login-icon">
+                <i class="fas fa-user-check"></i>
+            </div>
+            <h2>AI Face Recognition</h2>
+            <p class="text-muted">Attendance Management System</p>
+        </div>
+        
+        <form method="POST" class="login-form">
+            <div class="mb-3">
+                <label for="username" class="form-label">
+                    <i class="fas fa-user me-2"></i>Username
+                </label>
+                <input type="text" class="form-control" id="username" name="username" required>
+            </div>
+            
+            <div class="mb-3">
+                <label for="password" class="form-label">
+                    <i class="fas fa-lock me-2"></i>Password
+                </label>
+                <input type="password" class="form-control" id="password" name="password" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-login">
+                <i class="fas fa-sign-in-alt me-2"></i>Login
+            </button>
+        </form>
+        
+        <div class="login-footer">
+            <small class="text-muted">
+                Default credentials: admin / admin123
+            </small>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add some animation to the login form
+    const loginCard = document.querySelector('.login-card');
+    loginCard.style.opacity = '0';
+    loginCard.style.transform = 'translateY(20px)';
+    
+    setTimeout(() => {
+        loginCard.style.transition = 'all 0.5s ease';
+        loginCard.style.opacity = '1';
+        loginCard.style.transform = 'translateY(0)';
+    }, 100);
+});
+</script>
+{% endblock %}

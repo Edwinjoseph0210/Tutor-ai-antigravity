@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "ai-tutor-94ff4"
+  },
+  "targets": {
+    "ai-tutor-94ff4": {
+      "hosting": {
+        "aitutor-team": [
+          "aitutor-team"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

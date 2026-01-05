@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - AI Face Recognition System{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+        </h1>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger" role="alert">
+    <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+</div>
+{% endif %}
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">{{ total_students }}</h4>
+                        <p class="card-text">Total Students</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">
+                            {{ today_attendance | selectattr('status', 'equalto', 'Present') | list | length }}
+                        </h4>
+                        <p class="card-text">Present Today</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-check-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">
+                            {{ today_attendance | selectattr('status', 'equalto', 'Partial') | list | length }}
+                        </h4>
+                        <p class="card-text">Partial Today</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-clock fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4 class="card-title">
+                            {{ today_attendance | selectattr('status', 'equalto', 'Absent') | list | length }}
+                        </h4>
+                        <p class="card-text">Absent Today</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-times-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Today's Attendance -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-calendar-day me-2"></i>Today's Attendance
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Roll Number</th>
+                                <th>Name</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in today_attendance %}
+                            <tr>
+                                <td>{{ student.roll_number }}</td>
+                                <td>{{ student.name }}</td>
+                                <td>
+                                    {% if student.status == 'Present' %}
+                                        <span class="badge bg-success">Present</span>
+                                    {% elif student.status == 'Partial' %}
+                                        <span class="badge bg-warning">Partial</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Absent</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-bolt me-2"></i>Quick Actions
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('face_recognition_page') }}" class="btn btn-primary">
+                        <i class="fas fa-camera me-2"></i>Start Face Recognition
+                    </a>
+                    <a href="{{ url_for('students') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-users me-2"></i>Manage Students
+                    </a>
+                    <a href="{{ url_for('reports') }}" class="btn btn-outline-success">
+                        <i class="fas fa-chart-bar me-2"></i>View Reports
+                    </a>
+                    <button class="btn btn-outline-info" onclick="exportCSV()">
+                        <i class="fas fa-download me-2"></i>Export CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Attendance Summary Chart -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-chart-pie me-2"></i>Attendance Overview
+                </h5>
+            </div>
+            <div class="card-body">
+                <canvas id="attendanceChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Attendance Chart
+const ctx = document.getElementById('attendanceChart').getContext('2d');
+const presentCount = {{ today_attendance | selectattr('status', 'equalto', 'Present') | list | length }};
+const partialCount = {{ today_attendance | selectattr('status', 'equalto', 'Partial') | list | length }};
+const absentCount = {{ today_attendance | selectattr('status', 'equalto', 'Absent') | list | length }};
+
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Present', 'Partial', 'Absent'],
+        datasets: [{
+            data: [presentCount, partialCount, absentCount],
+            backgroundColor: [
+                '#28a745',
+                '#ffc107',
+                '#dc3545'
+            ],
+            borderWidth: 2,
+            borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+
+// Export CSV function
+function exportCSV() {
+    fetch('{{ url_for("export_csv") }}')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Create a temporary link to download the file
+                const link = document.createElement('a');
+                link.href = data.file;
+                link.download = 'attendance_report.csv';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Show success message
+                showAlert('CSV exported successfully!', 'success');
+            } else {
+                showAlert('Failed to export CSV: ' + data.message, 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error exporting CSV: ' + error, 'danger');
+        });
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('main').insertBefore(alertDiv, document.querySelector('main').firstChild);
+}
+</script>
+{% endblock %}
