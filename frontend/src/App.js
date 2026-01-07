@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Landing from './pages/Landing';
 import Auth from './pages/Auth';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Students from './pages/Students';
 import Attendance from './pages/Attendance';
@@ -37,8 +38,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
-      <Route path="/login" element={<Auth />} />
-      <Route path="/register" element={<Auth />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Login />} />
       <Route
         path="/dashboard"
         element={
