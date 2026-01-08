@@ -1,215 +1,190 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { attendanceAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 
 const ClassAttendance = () => {
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState('');
-  const [isAttendanceActive, setIsAttendanceActive] = useState(false);
-  const [attendanceStatus, setAttendanceStatus] = useState('');
-  const [recognizedStudents, setRecognizedStudents] = useState([]);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameras, setCameras] = useState([]);
-  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const navigate = useNavigate();
+  const [status, setStatus] = useState('Initializing...');
+  const [progress, setProgress] = useState(0);
+  const [recognizedCount, setRecognizedCount] = useState(0);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const recognitionIntervalRef = useRef(null);
-
-  // Sample data - in a real app, this would come from your database
-  const classes = [
-    { id: 'class1', name: 'Class 10A', subjects: ['Mathematics', 'Science', 'English', 'History'] },
-    { id: 'class2', name: 'Class 10B', subjects: ['Mathematics', 'Science', 'English', 'Geography'] },
-    { id: 'class3', name: 'Class 11A', subjects: ['Physics', 'Chemistry', 'Biology', 'Mathematics'] },
-    { id: 'class4', name: 'Class 11B', subjects: ['Physics', 'Chemistry', 'Computer Science', 'Mathematics'] },
-    { id: 'class5', name: 'Class 12A', subjects: ['Physics', 'Chemistry', 'Mathematics', 'English'] },
-    { id: 'class6', name: 'Class 12B', subjects: ['Biology', 'Chemistry', 'Mathematics', 'English'] }
-  ];
-
-  const getSelectedClassData = () => {
-    return classes.find(cls => cls.id === selectedClass);
-  };
+  const captureTimeoutRef = useRef(null);
 
   useEffect(() => {
-    getCameras();
+    // Auto-start attendance on mount
+    startAutomaticAttendance();
+
     return () => {
-      stopCamera();
-    };
-  }, []);
-
-  const getCameras = async () => {
-    try {
-      // Request permission first to get labels
-      await navigator.mediaDevices.getUserMedia({ video: true });
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      setCameras(videoDevices);
-
-      if (videoDevices.length > 0) {
-        // Try to find Logitech C930e
-        const logitechCamera = videoDevices.find(device =>
-          device.label.toLowerCase().includes('logitech') &&
-          device.label.toLowerCase().includes('c930e')
-        );
-
-        if (logitechCamera) {
-          setSelectedCameraId(logitechCamera.deviceId);
-          setAttendanceStatus('Logitech Webcam C930e detected and selected');
-        } else {
-          setSelectedCameraId(videoDevices[0].deviceId);
-        }
-      }
-    } catch (error) {
-      console.error('Error listing cameras:', error);
-      setAttendanceStatus('Error accessing camera devices: ' + error.message);
-    }
-  };
-
-  const startCamera = async () => {
-    try {
+      // Cleanup on unmount
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
+      if (captureTimeoutRef.current) {
+        clearTimeout(captureTimeoutRef.current);
+      }
+    };
+  }, []);
 
-      const constraints = {
+  const startAutomaticAttendance = async () => {
+    try {
+      setStatus('Activating camera...');
+      setProgress(10);
+
+      // Step 1: Get camera access (silently, no preview)
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: 640,
-          height: 480,
-          deviceId: selectedCameraId ? { exact: selectedCameraId } : undefined
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         }
-      };
+      });
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-      setCameraActive(true);
-      return true;
-    } catch (error) {
-      console.error('Camera error:', error);
-      setAttendanceStatus('Error: Could not access camera');
-      return false;
-    }
-  };
 
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-    if (recognitionIntervalRef.current) {
-      clearInterval(recognitionIntervalRef.current);
+      setStatus('Camera active - Detecting faces...');
+      setProgress(30);
+
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        if (videoRef.current.readyState >= 2) {
+          resolve();
+        } else {
+          videoRef.current.onloadedmetadata = resolve;
+        }
+      });
+
+      setProgress(50);
+
+      // Step 2: Capture faces for 5-6 seconds
+      const captureStartTime = Date.now();
+      const captureDuration = 6000; // 6 seconds
+      const allRecognizedStudents = new Set();
+
+      const captureInterval = setInterval(async () => {
+        const elapsed = Date.now() - captureStartTime;
+        const progressPercent = 50 + (elapsed / captureDuration) * 30; // 50% to 80%
+        setProgress(Math.min(progressPercent, 80));
+
+        if (elapsed >= captureDuration) {
+          clearInterval(captureInterval);
+
+          // Step 3: Finalize and mark attendance
+          await finalizeAttendance(Array.from(allRecognizedStudents));
+        } else {
+          // Capture and recognize
+          const recognized = await captureAndRecognize();
+          if (recognized && recognized.length > 0) {
+            recognized.forEach(student => allRecognizedStudents.add(student.name));
+            setRecognizedCount(allRecognizedStudents.size);
+          }
+        }
+      }, 1000); // Capture every second
+
+    } catch (error) {
+      console.error('Attendance error:', error);
+      setStatus('Error: ' + error.message);
+      setTimeout(() => navigate('/dashboard'), 3000);
     }
   };
 
   const captureAndRecognize = async () => {
-    if (!videoRef.current) return null;
-
-    // Create a temporary canvas to capture the frame
-    const video = videoRef.current;
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-
-    const context = canvas.getContext('2d');
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const imageData = canvas.toDataURL('image/jpeg');
+    if (!videoRef.current || videoRef.current.readyState < 2) {
+      return null;
+    }
 
     try {
+      // Create canvas and capture frame
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = canvas.toDataURL('image/jpeg', 0.85);
+
+      // Send to backend for recognition
       const response = await fetch('/api/recognize_faces', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageData })
       });
 
       const data = await response.json();
       if (data.success && data.faces && data.faces.length > 0) {
-        // Return the first recognized face
-        return data.faces[0];
+        return data.faces.filter(face =>
+          face.name !== 'Unknown' &&
+          parseFloat(face.confidence.replace('%', '')) > 60
+        );
       }
     } catch (error) {
       console.error('Recognition error:', error);
     }
+
     return null;
   };
 
-  const startAttendance = async () => {
-    if (!selectedClass || !selectedSubject) {
-      setAttendanceStatus('Please select both class and subject');
-      return;
-    }
+  const finalizeAttendance = async (recognizedStudents) => {
+    setStatus('Finalizing attendance...');
+    setProgress(85);
 
-    const cameraStarted = await startCamera();
-    if (!cameraStarted) return;
+    try {
+      // Get all registered students
+      const studentsResponse = await fetch('/api/students');
+      const studentsData = await studentsResponse.json();
+      const allStudents = studentsData.students || [];
 
-    setIsAttendanceActive(true);
-    setAttendanceStatus(`Attendance started for ${getSelectedClassData()?.name} - ${selectedSubject}`);
-    setRecognizedStudents([]);
+      // Mark attendance
+      const attendanceData = allStudents.map(student => ({
+        name: student.name,
+        status: recognizedStudents.includes(student.name) ? 'Present' : 'Absent',
+        timestamp: new Date().toISOString()
+      }));
 
-    // Start face recognition loop
-    recognitionIntervalRef.current = setInterval(async () => {
-      const recognition = await captureAndRecognize();
+      // Submit attendance to backend
+      await fetch('/api/attendance/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendance: attendanceData,
+          session_date: new Date().toISOString().split('T')[0]
+        })
+      });
 
-      if (recognition && recognition.name !== 'Unknown') {
-        const confValue = parseFloat(recognition.confidence.replace('%', ''));
+      setStatus(`Attendance marked: ${recognizedStudents.length} present`);
+      setProgress(100);
 
-        if (confValue > 60) {
-          setRecognizedStudents(prev => {
-            const exists = prev.find(student => student.name === recognition.name);
-            if (!exists) {
-              return [...prev, {
-                name: recognition.name,
-                confidence: recognition.confidence,
-                timestamp: new Date().toLocaleTimeString()
-              }];
-            }
-            return prev;
-          });
-        }
+      // Stop camera
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
-    }, 3000); // Check every 3 seconds
-  };
 
-  const stopAttendance = async () => {
-    stopCamera();
-    setIsAttendanceActive(false);
-    setAttendanceStatus('Attendance session ended');
+      // Redirect to dashboard after 2 seconds
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 2000);
 
-    // Mark attendance for recognized students
-    for (const student of recognizedStudents) {
-      try {
-        await attendanceAPI.markAttendance(student.name);
-      } catch (error) {
-        console.error('Error marking attendance:', error);
-      }
+    } catch (error) {
+      console.error('Finalization error:', error);
+      setStatus('Error finalizing attendance');
+      setTimeout(() => navigate('/dashboard'), 3000);
     }
-
-    setRecognizedStudents([]);
-  };
-
-  const resetSelection = () => {
-    setSelectedClass('');
-    setSelectedSubject('');
-    setAttendanceStatus('');
-    setRecognizedStudents([]);
   };
 
   return (
-    <div>
-      <div className="row">
-        <div className="col-12">
-          <h1 className="mb-4">
-            <i className="fas fa-chalkboard-teacher me-2"></i>Class Attendance
-          </h1>
-        </div>
-      </div>
-
-      {/* Hidden video element for face recognition */}
+    <div style={{
+      height: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    }}>
+      {/* Hidden video element */}
       <video
         ref={videoRef}
         autoPlay
@@ -218,228 +193,95 @@ const ClassAttendance = () => {
         style={{ display: 'none' }}
       />
 
-      <div className="row">
-        {/* Class and Subject Selection */}
-        <div className="col-md-6">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-graduation-cap me-2"></i>Select Class & Subject
-              </h5>
-            </div>
-            <div className="card-body">
-              {/* Camera Selection */}
-              <div className="mb-4">
-                <label className="form-label fw-bold">Select Camera:</label>
-                <div className="d-flex">
-                  <select
-                    className="form-select"
-                    value={selectedCameraId}
-                    onChange={(e) => {
-                      setSelectedCameraId(e.target.value);
-                      if (isAttendanceActive) {
-                        setAttendanceStatus('Camera changed. Please restart attendance.');
-                        stopAttendance();
-                      }
-                    }}
-                    disabled={isAttendanceActive}
-                  >
-                    {cameras.map(camera => (
-                      <option key={camera.deviceId} value={camera.deviceId}>
-                        {camera.label || `Camera ${camera.deviceId.slice(0, 5)}...`}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn btn-outline-secondary ms-2"
-                    onClick={getCameras}
-                    title="Refresh Cameras"
-                    disabled={isAttendanceActive}
-                  >
-                    <i className="fas fa-sync-alt"></i>
-                  </button>
-                </div>
-              </div>
-
-              {/* Class Selection */}
-              <div className="mb-4">
-                <label className="form-label fw-bold">Select Class:</label>
-                <div className="row">
-                  {classes.map((cls) => (
-                    <div key={cls.id} className="col-md-6 mb-2">
-                      <button
-                        className={`btn w-100 ${selectedClass === cls.id ? 'btn-primary' : 'btn-outline-primary'}`}
-                        onClick={() => {
-                          setSelectedClass(cls.id);
-                          setSelectedSubject('');
-                        }}
-                        disabled={isAttendanceActive}
-                      >
-                        <i className="fas fa-users me-2"></i>{cls.name}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Subject Selection */}
-              {selectedClass && (
-                <div className="mb-4">
-                  <label className="form-label fw-bold">Select Subject:</label>
-                  <div className="row">
-                    {getSelectedClassData()?.subjects.map((subject, index) => (
-                      <div key={index} className="col-md-6 mb-2">
-                        <button
-                          className={`btn w-100 ${selectedSubject === subject ? 'btn-success' : 'btn-outline-success'}`}
-                          onClick={() => setSelectedSubject(subject)}
-                          disabled={isAttendanceActive}
-                        >
-                          <i className="fas fa-book me-2"></i>{subject}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Start/Stop Attendance */}
-              <div className="d-grid gap-2">
-                {!isAttendanceActive ? (
-                  <button
-                    className="btn btn-success btn-lg"
-                    onClick={startAttendance}
-                    disabled={!selectedClass || !selectedSubject}
-                  >
-                    <i className="fas fa-play me-2"></i>Start Attendance
-                  </button>
-                ) : (
-                  <button
-                    className="btn btn-danger btn-lg"
-                    onClick={stopAttendance}
-                  >
-                    <i className="fas fa-stop me-2"></i>End Attendance
-                  </button>
-                )}
-
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={resetSelection}
-                  disabled={isAttendanceActive}
-                >
-                  <i className="fas fa-refresh me-2"></i>Reset Selection
-                </button>
-              </div>
-            </div>
-          </div>
+      {/* Status Display */}
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.95)',
+        borderRadius: '20px',
+        padding: '3rem',
+        maxWidth: '500px',
+        width: '90%',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        textAlign: 'center'
+      }}>
+        {/* Animated Icon */}
+        <div style={{ marginBottom: '2rem' }}>
+          <i
+            className="fas fa-user-check"
+            style={{
+              fontSize: '4rem',
+              color: '#667eea',
+              animation: 'pulse 2s infinite'
+            }}
+          />
         </div>
 
-        {/* Attendance Status and Results */}
-        <div className="col-md-6">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-clipboard-check me-2"></i>Attendance Status
-              </h5>
+        {/* Status Text */}
+        <h2 style={{
+          color: '#333',
+          marginBottom: '1rem',
+          fontWeight: '600'
+        }}>
+          Automatic Attendance
+        </h2>
+
+        <p style={{
+          color: '#666',
+          fontSize: '1.1rem',
+          marginBottom: '2rem'
+        }}>
+          {status}
+        </p>
+
+        {/* Progress Bar */}
+        <div style={{
+          width: '100%',
+          height: '8px',
+          background: '#e0e0e0',
+          borderRadius: '4px',
+          overflow: 'hidden',
+          marginBottom: '1rem'
+        }}>
+          <div style={{
+            width: `${progress}%`,
+            height: '100%',
+            background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+
+        {/* Stats */}
+        {recognizedCount > 0 && (
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            background: '#f0f7ff',
+            borderRadius: '10px',
+            border: '2px solid #667eea'
+          }}>
+            <div style={{
+              fontSize: '2rem',
+              fontWeight: 'bold',
+              color: '#667eea'
+            }}>
+              {recognizedCount}
             </div>
-            <div className="card-body">
-              {/* Status Display */}
-              <div className="mb-3">
-                <div className="d-flex align-items-center">
-                  <div className={`badge fs-6 me-2 ${isAttendanceActive ? 'bg-success' : 'bg-secondary'}`}>
-                    {isAttendanceActive ? 'Active' : 'Inactive'}
-                  </div>
-                  {cameraActive && (
-                    <div className="badge bg-info fs-6">
-                      <i className="fas fa-camera me-1"></i>Camera On
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Current Session Info */}
-              {selectedClass && selectedSubject && (
-                <div className="alert alert-info">
-                  <strong>Current Session:</strong><br />
-                  <i className="fas fa-users me-1"></i>{getSelectedClassData()?.name}<br />
-                  <i className="fas fa-book me-1"></i>{selectedSubject}
-                </div>
-              )}
-
-              {/* Status Message */}
-              {attendanceStatus && (
-                <div className={`alert ${isAttendanceActive ? 'alert-success' : 'alert-info'}`}>
-                  <i className="fas fa-info-circle me-2"></i>{attendanceStatus}
-                </div>
-              )}
-
-              {/* Recognized Students */}
-              {recognizedStudents.length > 0 && (
-                <div className="mt-3">
-                  <h6 className="fw-bold">Recognized Students ({recognizedStudents.length}):</h6>
-                  <div className="list-group">
-                    {recognizedStudents.map((student, index) => (
-                      <div key={index} className="list-group-item d-flex justify-content-between align-items-center">
-                        <div>
-                          <i className="fas fa-user-check me-2 text-success"></i>
-                          <strong>{student.name}</strong>
-                          <br />
-                          <small className="text-muted">Detected at {student.timestamp}</small>
-                        </div>
-                        <span className="badge bg-success">{student.confidence}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+            <div style={{
+              fontSize: '0.9rem',
+              color: '#666',
+              marginTop: '0.25rem'
+            }}>
+              Students Recognized
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Instructions */}
-      <div className="row mt-4">
-        <div className="col-12">
-          <div className="card">
-            <div className="card-header">
-              <h5 className="card-title mb-0">
-                <i className="fas fa-question-circle me-2"></i>How to Use
-              </h5>
-            </div>
-            <div className="card-body">
-              <div className="row">
-                <div className="col-md-3 text-center">
-                  <div className="mb-2">
-                    <i className="fas fa-mouse-pointer fa-2x text-primary"></i>
-                  </div>
-                  <h6>1. Select Class</h6>
-                  <p className="text-muted small">Choose the class you want to take attendance for</p>
-                </div>
-                <div className="col-md-3 text-center">
-                  <div className="mb-2">
-                    <i className="fas fa-book fa-2x text-success"></i>
-                  </div>
-                  <h6>2. Select Subject</h6>
-                  <p className="text-muted small">Choose the subject for the attendance session</p>
-                </div>
-                <div className="col-md-3 text-center">
-                  <div className="mb-2">
-                    <i className="fas fa-play fa-2x text-warning"></i>
-                  </div>
-                  <h6>3. Start Attendance</h6>
-                  <p className="text-muted small">Click start to begin face recognition</p>
-                </div>
-                <div className="col-md-3 text-center">
-                  <div className="mb-2">
-                    <i className="fas fa-stop fa-2x text-danger"></i>
-                  </div>
-                  <h6>4. End Session</h6>
-                  <p className="text-muted small">Click stop when attendance is complete</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.1); opacity: 0.8; }
+        }
+      `}</style>
     </div>
   );
 };

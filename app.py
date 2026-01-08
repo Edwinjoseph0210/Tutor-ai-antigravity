@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, session, redirect, url_for
+from flask import Flask, request, jsonify, session, redirect, url_for, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
@@ -48,6 +48,21 @@ try:
         print("⚠ Gemini AI not available (check GEMINI_API_KEY)")
 except ImportError:
     print("⚠ Gemini AI not available (google-generativeai not installed)")
+
+# Import PDF parser utilities
+try:
+    import sys
+    utils_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'utils')
+    if utils_path not in sys.path:
+        sys.path.insert(0, utils_path)
+    from pdf_parser import extract_text_from_file, extract_topics_with_ai
+    pdf_parser_available = True
+    print("✓ PDF parser loaded successfully")
+except Exception as e:
+    pdf_parser_available = False
+    extract_text_from_file = None
+    extract_topics_with_ai = None
+    print(f"⚠ PDF parser not available: {e}")
 except Exception as e:
     print(f"⚠ Gemini AI initialization error: {str(e)}")
 
@@ -200,6 +215,510 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+# ============================================================================
+# NEW CLASS/SECTION MANAGEMENT APIs
+# ============================================================================
+
+@app.route('/api/classes', methods=['GET'])
+@login_required
+def get_classes():
+    """Get all classes (1-12)"""
+    try:
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        cur.execute('SELECT id, grade, name FROM classes ORDER BY grade')
+        classes = cur.fetchall()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'data': [{'id': c[0], 'grade': c[1], 'name': c[2]} for c in classes]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sections', methods=['GET'])
+@login_required
+def get_sections():
+    """Get sections for a specific class"""
+    try:
+        class_id = request.args.get('class_id')
+        if not class_id:
+            return jsonify({'success': False, 'message': 'class_id required'}), 400
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT id, name FROM sections 
+            WHERE class_id = ? 
+            ORDER BY name
+        ''', (class_id,))
+        sections = cur.fetchall()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'data': [{'id': s[0], 'name': s[1]} for s in sections]
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/subjects', methods=['GET'])
+@login_required
+def get_subjects():
+    """Get subjects (hardcoded for now)"""
+    subjects = [
+        {'id': 1, 'name': 'Mathematics'},
+        {'id': 2, 'name': 'Science'},
+        {'id': 3, 'name': 'English'},
+        {'id': 4, 'name': 'History'},
+        {'id': 5, 'name': 'Geography'},
+        {'id': 6, 'name': 'Physics'},
+        {'id': 7, 'name': 'Chemistry'},
+        {'id': 8, 'name': 'Biology'},
+        {'id': 9, 'name': 'Computer Science'},
+        {'id': 10, 'name': 'Hindi'}
+    ]
+    return jsonify({'success': True, 'data': subjects})
+
+@app.route('/api/materials', methods=['GET'])
+@login_required
+def get_materials():
+    """Get materials for a specific class and subject with their topics"""
+    try:
+        class_id = request.args.get('class')
+        subject = request.args.get('subject')
+        
+        if not class_id or not subject:
+            return jsonify({'success': False, 'message': 'class and subject required'}), 400
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # Get materials
+        cur.execute('''
+            SELECT id, filename, upload_date, processing_status, total_topics
+            FROM materials
+            WHERE class_id = ? AND subject = ?
+            ORDER BY upload_date DESC
+        ''', (class_id, subject))
+        
+        materials = cur.fetchall()
+        
+        result = []
+        for mat in materials:
+            material_id, filename, upload_date, status, total_topics = mat
+            
+            # Get topics for this material
+            cur.execute('''
+                SELECT id, title, description, order_index
+                FROM topics
+                WHERE material_id = ?
+                ORDER BY order_index
+            ''', (material_id,))
+            
+            topics = cur.fetchall()
+            topic_list = [{'id': t[0], 'title': t[1], 'description': t[2]} for t in topics]
+            
+            result.append({
+                'id': material_id,
+                'filename': filename,
+                'upload_date': upload_date,
+                'status': status,
+                'total_topics': total_topics or len(topic_list),
+                'topics': topic_list
+            })
+        
+        conn.close()
+        
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/materials/upload', methods=['POST'])
+@login_required
+def upload_materials():
+    """Upload study materials and extract topics using AI"""
+    try:
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'message': 'No files provided'}), 400
+        
+        files = request.files.getlist('files')
+        class_id = request.form.get('class')
+        subject = request.form.get('subject')
+        
+        if not class_id or not subject:
+            return jsonify({'success': False, 'message': 'class and subject required'}), 400
+        
+        # Create uploads directory if not exists
+        upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'materials')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # Create materials table if not exists
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS materials (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_id INTEGER,
+                subject TEXT,
+                filename TEXT,
+                filepath TEXT,
+                upload_date TEXT,
+                processing_status TEXT DEFAULT 'pending',
+                total_topics INTEGER DEFAULT 0
+            )
+        ''')
+        
+        # Create topics table if not exists
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS topics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                material_id INTEGER,
+                class_id INTEGER,
+                subject TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                content TEXT,
+                order_index INTEGER,
+                FOREIGN KEY (material_id) REFERENCES materials(id)
+            )
+        ''')
+        
+        uploaded_files = []
+        
+        for file in files:
+            if file.filename:
+                # Save file
+                filename = file.filename
+                filepath = os.path.join(upload_dir, filename)
+                file.save(filepath)
+                
+                # Insert material record
+                cur.execute('''
+                    INSERT INTO materials (class_id, subject, filename, filepath, upload_date, processing_status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (class_id, subject, filename, filepath, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'processing'))
+                material_id = cur.lastrowid
+                
+                # Extract text from file
+                print(f"Extracting text from {filename}...")
+                extracted_text = extract_text_from_file(filepath)
+                
+                if extracted_text and len(extracted_text) > 100:
+                    # Use Gemini AI to extract topics
+                    if gemini_available:
+                        print(f"Extracting topics using AI...")
+                        try:
+                            model = genai.GenerativeModel('gemini-pro')
+                            topics = extract_topics_with_ai(extracted_text, subject, model)
+                            
+                            # Save topics to database
+                            for idx, topic in enumerate(topics):
+                                cur.execute('''
+                                    INSERT INTO topics (material_id, class_id, subject, title, description, content, order_index)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', (material_id, class_id, subject, 
+                                      topic.get('title', f'Topic {idx+1}'),
+                                      topic.get('description', ''),
+                                      topic.get('content', ''),
+                                      topic.get('order', idx+1)))
+                            
+                            # Update material with topic count and status
+                            cur.execute('''
+                                UPDATE materials 
+                                SET total_topics = ?, processing_status = 'completed'
+                                WHERE id = ?
+                            ''', (len(topics), material_id))
+                            
+                            print(f"✓ Extracted {len(topics)} topics from {filename}")
+                        except Exception as e:
+                            print(f"Error extracting topics: {e}")
+                            # Update status to failed
+                            cur.execute('''
+                                UPDATE materials SET processing_status = 'failed' WHERE id = ?
+                            ''', (material_id,))
+                    else:
+                        # Gemini not available, create basic topics
+                        print("⚠ Gemini not available, creating basic topics")
+                        basic_topics = [
+                            {'title': f'Introduction to {subject}', 'description': 'Overview', 'content': extracted_text[:1000], 'order': 1},
+                            {'title': f'Core Concepts', 'description': 'Main topics', 'content': extracted_text[1000:2000] if len(extracted_text) > 1000 else '', 'order': 2}
+                        ]
+                        
+                        for idx, topic in enumerate(basic_topics):
+                            cur.execute('''
+                                INSERT INTO topics (material_id, class_id, subject, title, description, content, order_index)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ''', (material_id, class_id, subject, topic['title'], topic['description'], topic['content'], topic['order']))
+                        
+                        cur.execute('''
+                            UPDATE materials SET total_topics = ?, processing_status = 'completed' WHERE id = ?
+                        ''', (len(basic_topics), material_id))
+                else:
+                    # No text extracted
+                    cur.execute('''
+                        UPDATE materials SET processing_status = 'failed' WHERE id = ?
+                    ''', (material_id,))
+                
+                uploaded_files.append(filename)
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Uploaded and processed {len(uploaded_files)} file(s)',
+            'files': uploaded_files
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/lecture/topics', methods=['GET'])
+@login_required
+def get_lecture_topics():
+    """Get topics for lecture (from uploaded materials only)"""
+    try:
+        class_id = request.args.get('class_id') or request.args.get('class')
+        subject = request.args.get('subject')
+        
+        if not class_id or not subject:
+            return jsonify({'success': False, 'message': 'class_id and subject required'}), 400
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # Get all topics for this class and subject from uploaded materials
+        cur.execute('''
+            SELECT t.id, t.title, t.description, t.content, m.filename
+            FROM topics t
+            JOIN materials m ON t.material_id = m.id
+            WHERE t.class_id = ? AND t.subject = ?
+            AND m.processing_status = 'completed'
+            ORDER BY m.upload_date DESC, t.order_index
+        ''', (class_id, subject))
+        
+        topics = cur.fetchall()
+        conn.close()
+        
+        result = []
+        for topic in topics:
+            result.append({
+                'id': topic[0],
+                'title': topic[1],
+                'description': topic[2],
+                'source': topic[4]  # filename
+            })
+        
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+def clean_lecture_content(text):
+    """
+    Heuristically clean raw PDF text for better reading.
+    Removes artifacts and reconstructs paragraphs from line breaks.
+    """
+    if not text:
+        return ""
+        
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    # Patterns to ignore
+    ignore_patterns = [
+        r'^\d+\s*\|\s*P\s*a\s*g\s*e',  # 1 | P a g e
+        r'^Page\s*\d+',                # Page 1
+        r'^STUDY\s*MATERIAL',          # STUDY MATERIAL
+        r'^CLASS\s*-\s*[XVI]+',        # CLASS - XII
+        r'^CHEMISTRY\s*\(\d+\)',       # CHEMISTRY (043)
+        r'^\d{4}-\d{2}',               # 2024-25
+        r'^CHIEF\s*PATRON',            # CHIEF PATRON
+    ]
+    
+    import re
+    import random
+
+    transitions = [
+        "Moving on to the next point.",
+        "Let's look at this in more detail.",
+        "Furthermore,",
+        "Additionally,",
+        "Another key aspect is,"
+    ]
+    
+    current_paragraph = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            # Empty line -> end current paragraph
+            if current_paragraph:
+                cleaned_lines.append(" ".join(current_paragraph))
+                current_paragraph = []
+            continue
+            
+        # Check if line matches any ignore pattern
+        should_skip = False
+        for pattern in ignore_patterns:
+            if re.search(pattern, line, re.IGNORECASE):
+                should_skip = True
+                break
+        
+        if should_skip:
+            continue
+            
+        # Skip very short lines that look like artifacts (unless they are distinct headers)
+        if len(line) < 4 and not line.isupper() and not line.endswith(':'): 
+            continue
+            
+        # Paragraph Reconstruction Logic
+        # If line ends with sentence punctuation, it might be end of paragraph or just end of sentence
+        # But if it DOESN'T end with punctuation, it's definitely a mid-sentence line break -> MERGE
+        current_paragraph.append(line)
+        
+        # If line ends with period/exclamation/question, treat as potential paragraph end (optional check)
+        # For now, we rely on empty lines in source to determine paragraph breaks, 
+        # but we definitely merge non-empty consecutive lines.
+
+    # Flush last paragraph
+    if current_paragraph:
+        cleaned_lines.append(" ".join(current_paragraph))
+
+    # Join paragraphs with transitions if they are long enough
+    final_text = ""
+    for i, para in enumerate(cleaned_lines):
+        final_text += para + "\n\n"
+        # Occasionally inject transition between substantial paragraphs
+        if i < len(cleaned_lines) - 1 and len(para) > 200 and i % 3 == 0:
+             transition = random.choice(transitions)
+             final_text += f"{transition}\n\n"
+             
+    return final_text
+
+@app.route('/api/lecture/generate', methods=['POST'])
+@login_required
+def generate_lecture():
+    """Generate lecture content from topic (using ONLY uploaded material content)"""
+    # Helper to log errors
+    def log_error(msg):
+        with open('backend_error.log', 'a') as f:
+            f.write(f"[{datetime.now()}] {msg}\n")
+
+    try:
+        data = request.get_json()
+        topic_id = data.get('topic_id')
+        
+        if not topic_id:
+            return jsonify({'success': False, 'message': 'topic_id required'}), 400
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # Get topic details
+        cur.execute('''
+            SELECT title, description, content, subject
+            FROM topics
+            WHERE id = ?
+        ''', (topic_id,))
+        
+        topic = cur.fetchone()
+        conn.close()
+        
+        if not topic:
+            log_error(f"Topic not found: {topic_id}")
+            return jsonify({'success': False, 'message': 'Topic not found'}), 404
+        
+        title, description, content, subject = topic
+        
+        log_error(f"Generating lecture for: {title} (Gemini available: {gemini_available})")
+
+        # Generate lecture using Gemini AI with topic content as context
+        if gemini_available and content:
+            try:
+                model = genai.GenerativeModel('gemini-pro')
+                
+                prompt = f"""You are a teacher preparing a lecture for students.
+
+Topic: {title}
+Description: {description}
+Subject: {subject}
+
+Content from study materials:
+{content}
+
+Generate a structured, engaging lecture covering this topic.
+IMPORTANT: Use ONLY the provided content above. Do not add external knowledge.
+
+Format the lecture with:
+1. Introduction (brief overview)
+2. Main Concepts (explain key points from the content)
+3. Examples (use examples from the content if available)
+4. Summary (recap main points)
+
+Make it educational and easy to understand. Keep it focused on the material provided."""
+
+                response = model.generate_content(prompt)
+                lecture_content = response.text
+                
+                return jsonify({
+                    'success': True,
+                    'lecture': {
+                        'title': title,
+                        'content': lecture_content,
+                        'duration': '20-30 minutes'
+                    }
+                })
+            except Exception as e:
+                log_error(f"Gemini generation error (switching to fallback): {str(e)}")
+                print(f"Error generating lecture with AI: {e}")
+                
+                # Fallback: Clean the content heuristics
+                cleaned_content = clean_lecture_content(content)
+                
+                # Add a natural intro
+                final_content = f"Welcome to today's lecture on {title}.\n\n{cleaned_content}\n\nThis concludes our session on {title}."
+
+                return jsonify({
+                    'success': True,
+                    'lecture': {
+                        'title': title,
+                        'content': final_content, 
+                        'duration': '30-40 minutes'
+                    }
+                })
+        else:
+            log_error("Gemini not available or no content - returning fallback")
+            
+            # Fallback for no AI: Return clean content
+            cleaned_content = clean_lecture_content(content) if content else 'No content available.'
+             # Add a natural intro
+            final_content = f"Welcome to today's lecture on {title}.\n\n{cleaned_content}\n\nThis concludes our session on {title}."
+
+            return jsonify({
+                'success': True,
+                'lecture': {
+                    'title': title,
+                    'content': final_content,
+                    'duration': '30-40 minutes'
+                }
+            })
+
+
+    except Exception as e:
+        import traceback
+        error_msg = traceback.format_exc()
+        log_error(f"General error in generate_lecture: {error_msg}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ============================================================================
+# END NEW APIs
+# ============================================================================
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -457,11 +976,51 @@ Produce a JSON structure with title, total_duration_minutes=45 and sections as i
 @app.route('/api/students')
 @login_required
 def students():
+    """Get students, optionally filtered by class and section"""
     try:
-        students_list = attendance.list_students()
+        class_id = request.args.get('class_id')
+        section_id = request.args.get('section_id')
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        if class_id and section_id:
+            # Get students for specific class and section
+            cur.execute('''
+                SELECT s.id, s.roll_number, s.name, s.age, c.name, sec.name
+                FROM students s
+                LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN sections sec ON s.section_id = sec.id
+                WHERE s.class_id = ? AND s.section_id = ?
+                ORDER BY s.roll_number
+            ''', (class_id, section_id))
+        elif class_id:
+            # Get students for specific class (all sections)
+            cur.execute('''
+                SELECT s.id, s.roll_number, s.name, s.age, c.name, sec.name
+                FROM students s
+                LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN sections sec ON s.section_id = sec.id
+                WHERE s.class_id = ?
+                ORDER BY s.roll_number
+            ''', (class_id,))
+        else:
+            # Get all students
+            cur.execute('''
+                SELECT s.id, s.roll_number, s.name, s.age, c.name, sec.name
+                FROM students s
+                LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN sections sec ON s.section_id = sec.id
+                ORDER BY s.roll_number
+            ''')
+        
+        students_list = cur.fetchall()
+        conn.close()
+        
         return jsonify({'success': True, 'data': students_list})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @app.route('/api/students', methods=['POST'])
 @login_required
@@ -547,10 +1106,61 @@ def delete_student(student_id):
 @app.route('/api/attendance')
 @login_required
 def attendance_page():
+    """Get attendance records for a specific Class/Section/Date (Full Register)"""
     try:
-        attendance_records = attendance.list_attendance()
-        return jsonify({'success': True, 'data': attendance_records})
+        class_id = request.args.get('class_id')
+        section_id = request.args.get('section_id')
+        date = request.args.get('date')
+        
+        # School-Style: View is Date-centric. If no date provided, default to today.
+        if not date:
+            date = datetime.now().strftime('%Y-%m-%d')
+            
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # If Class/Section provided, we want to show ALL students, even those without attendance marked
+        # (Though with bulk marking, everyone should have a record. This LEFT JOIN handles edge cases)
+        if class_id and section_id:
+             query = '''
+                SELECT 
+                    s.roll_number, 
+                    s.name, 
+                    COALESCE(a.status, 'Absent') as status,
+                    a.date
+                FROM students s
+                LEFT JOIN attendance a ON s.id = a.student_id AND a.date = ?
+                WHERE s.class_id = ? AND s.section_id = ?
+            '''
+             cur.execute(query, (date, class_id, section_id))
+        else:
+            # Fallback for simple list if no class selected
+            query = '''
+                SELECT s.roll_number, s.name, a.status, a.date
+                FROM attendance a
+                JOIN students s ON a.student_id = s.id
+                WHERE a.date = ?
+            '''
+            cur.execute(query, (date,))
+            
+        rows = cur.fetchall()
+        
+        data = []
+        for row in rows:
+            data.append({
+                'roll_number': row[0],
+                'student_name': row[1],
+                'status': row[2],
+                'date': row[3] or date # Use requested date if row[3] is None (meaning no record found in left join)
+            })
+            
+            
+        conn.close()
+        return jsonify({'success': True, 'data': data})
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/reports')
@@ -729,17 +1339,17 @@ def recognize_faces():
         image_bytes = base64.b64decode(image_data)
         image = Image.open(io.BytesIO(image_bytes))
         
-        # Convert PIL image to numpy array
-        image_array = np.array(image)
+        # Convert PIL image to numpy array (PIL uses RGB format)
+        # face_recognition library expects RGB format, so no conversion needed
+        rgb_image = np.array(image)
         
-        # Convert RGB to BGR for OpenCV (if needed)
-        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
-            rgb_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-        else:
-            rgb_image = image_array
-        
-        # Convert BGR to RGB for face_recognition
-        rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+        # Ensure image is in RGB format (handle RGBA or grayscale)
+        if len(rgb_image.shape) == 2:
+            # Grayscale - convert to RGB
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2RGB)
+        elif rgb_image.shape[2] == 4:
+            # RGBA - convert to RGB
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
         
         # Resize for faster processing (maintain aspect ratio)
         height, width = rgb_image.shape[:2]
@@ -752,8 +1362,18 @@ def recognize_faces():
         # Find face locations and encodings
         # Use HOG model for faster processing (optimized for 15 faces)
         # HOG is faster than CNN and sufficient for real-time multi-face detection
-        face_locations = face_recognition.face_locations(rgb_image, model='hog', number_of_times_to_upsample=2)
-        face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=2)
+        face_locations = face_recognition.face_locations(rgb_image, model='hog', number_of_times_to_upsample=1)
+        
+        # If no faces detected, return empty result immediately
+        if not face_locations:
+            return jsonify({
+                'success': True,
+                'faces': [],
+                'count': 0,
+                'message': 'No faces detected in image'
+            })
+        
+        face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=1)
         
         # Limit to 15 faces (prioritize first 15 detected)
         if len(face_locations) > 15:
@@ -775,9 +1395,9 @@ def recognize_faces():
                 best_match_index = np.argmin(face_distances)
                 best_distance = face_distances[best_match_index]
                 
-                # Use more lenient threshold (0.65 instead of default 0.6)
-                # Also check if this person has multiple photos - use the best match among all their photos
-                if best_distance < 0.65:
+                # Use stricter threshold (0.50 instead of 0.65) to prevent false positives
+                # Lower distance = better match, so 0.50 is more strict than 0.65
+                if best_distance < 0.50:
                     # Get all matches for this person (they might have multiple photos)
                     person_name = known_face_names[best_match_index]
                     
@@ -791,10 +1411,25 @@ def recognize_faces():
                     if person_distances:
                         best_person_distance = min(person_distances)
                         name = person_name
-                        confidence = face_confidence(best_person_distance)
+                        confidence = face_confidence(best_person_distance, face_match_threshold=0.50)
                     else:
                         name = person_name
-                        confidence = face_confidence(best_distance)
+                        confidence = face_confidence(best_distance, face_match_threshold=0.50)
+                    
+                    
+                    # Additional validation: Only accept if confidence is above 70%
+                    try:
+                        conf_value = float(confidence.replace('%', ''))
+                        print(f"🔍 Face Check: {name} (Confidence: {conf_value}%)")
+                        if conf_value < 70.0:
+                            print(f"❌ Rejected {name} due to low confidence (<70%)")
+                            name = "Unknown"
+                            confidence = "0%"
+                        else:
+                            print(f"✅ Accepted {name}")
+                    except:
+                        name = "Unknown"
+                        confidence = "0%"
             
             # Convert face_location from (top, right, bottom, left) to (x, y, width, height)
             top, right, bottom, left = face_location
@@ -900,6 +1535,184 @@ def mark_attendance_batch():
         conn.close()
         
         return jsonify({'success': True, 'message': f'Attendance marked as {status} for {name}'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/attendance/bulk', methods=['POST'])
+@login_required
+def mark_bulk_attendance():
+    """Mark attendance for multiple students (School-Style: Daily, Implicit Absent)"""
+    try:
+        data = request.get_json()
+        attendance_records = data.get('attendance', [])
+        class_id = data.get('class_id')
+        section_id = data.get('section_id')
+        date = data.get('date')
+        
+        # In school-style, we don't strictly need subject/period, but we can accept them if sent
+        # However, the core logic is now Date-based per Student.
+        
+        if not class_id or not section_id:
+             return jsonify({'success': False, 'message': 'Class and Section are required'}), 400
+
+        now = datetime.now()
+        date_str = date or now.strftime('%Y-%m-%d')
+        time_str = now.strftime('%H:%M:%S')
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+
+        # 1. Fetch ALL students for this class/section
+        cur.execute('SELECT id, name, roll_number FROM students WHERE class_id = ? AND section_id = ?', (class_id, section_id))
+        all_students = cur.fetchall() # List of (id, name, roll_number)
+        
+        if not all_students:
+             conn.close()
+             return jsonify({'success': False, 'message': 'No students found in this class/section'}), 404
+
+        # 2. Identify Present Students (from payload)
+        # Extract names of students marked 'Present' in the payload
+        present_names = {rec.get('name') for rec in attendance_records if rec.get('status') == 'Present'}
+        
+        marked_count = 0
+        present_students = []
+        absent_students = []
+        
+        # 3. Process Each Student (All students in class)
+        for student in all_students:
+            s_id, s_name, s_roll = student
+            
+            # Determine Status
+            status = 'Present' if s_name in present_names else 'Absent'
+            
+            # 4. Clean up existing records for this day (School-Style: One record per day)
+            # We delete any existing entry for this student on this date to avoid duplicates/conflicts
+            cur.execute('DELETE FROM attendance WHERE student_id = ? AND date = ?', (s_id, date_str))
+            
+            # 5. Insert New Record
+            # Note: Subject/Period are now optional/audit-only, but we insert NULL or empty if not used to keep schema happy
+            cur.execute('''
+                INSERT INTO attendance (student_id, date, time, status, class_id, section_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (s_id, date_str, time_str, status, class_id, section_id))
+            
+            marked_count += 1
+            if status == 'Present':
+                present_students.append(s_name)
+            else:
+                absent_students.append(s_name)
+
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Attendance marked for {date_str}',
+            'marked': marked_count,
+            'details': {
+                'present': present_students,
+                'absent': absent_students
+            }
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance marked for {marked_count} students',
+            'marked': marked_count,
+            'present': present_count,
+            'details': {
+                'present': present_students,
+                'absent': absent_students
+            },
+            'errors': errors if errors else None
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+        
+        if not attendance_records:
+            return jsonify({'success': False, 'message': 'No attendance data provided'}), 400
+        
+        # Validate that at least one student is marked Present
+        # This prevents marking everyone absent when no faces are detected
+        present_count = sum(1 for record in attendance_records if record.get('status') == 'Present')
+        
+        # If no one is marked present, this might be a false trigger (no faces detected)
+        # Return success but don't actually mark attendance
+        if present_count == 0:
+            print("⚠️ Bulk attendance skipped - no students marked as Present (likely no faces detected)")
+            return jsonify({
+                'success': True,
+                'message': 'No students detected - attendance not marked',
+                'marked': 0,
+                'skipped': True
+            })
+        
+        now = datetime.now()
+        date_str = now.strftime('%Y-%m-%d')
+        time_str = now.strftime('%H:%M:%S')
+        
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        marked_count = 0
+        errors = []
+        
+        for record in attendance_records:
+            name = record.get('name')
+            status = record.get('status', 'Absent')
+            
+            if not name:
+                continue
+            
+            try:
+                # Get student by name
+                student = attendance._get_student_by_name(name)
+                
+                # Auto-create student if not exists and has faces folder
+                if not student:
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    faces_path = os.path.join(script_dir, "faces", name)
+                    
+                    if os.path.exists(faces_path) and os.path.isdir(faces_path):
+                        roll_number = name.replace(' ', '_').upper()
+                        attendance.add_student(roll_number=roll_number, name=name)
+                        student = attendance._get_student_by_name(name)
+                        print(f"✓ Auto-created student: {name}")
+                
+                if student:
+                    student_id = student[0]
+                    
+                    # Delete existing attendance for today
+                    cur.execute('DELETE FROM attendance WHERE student_id = ? AND date = ?', 
+                              (student_id, date_str))
+                    
+                    # Insert new attendance record
+                    cur.execute('INSERT INTO attendance (student_id, date, time, status) VALUES (?, ?, ?, ?)',
+                              (student_id, date_str, time_str, status))
+                    
+                    marked_count += 1
+                else:
+                    errors.append(f"Student {name} not found")
+            except Exception as e:
+                errors.append(f"Error marking {name}: {str(e)}")
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✓ Bulk attendance marked: {marked_count} students ({present_count} present)")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance marked for {marked_count} students',
+            'marked': marked_count,
+            'present': present_count,
+            'errors': errors if errors else None
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1700,15 +2513,18 @@ def background_attendance_check():
         # Decode base64 image
         image_bytes = base64.b64decode(image_data)
         image = Image.open(io.BytesIO(image_bytes))
-        image_array = np.array(image)
         
-        # Convert RGB to BGR for OpenCV
-        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
-            rgb_image = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-        else:
-            rgb_image = image_array
+        # Convert PIL image to numpy array (PIL uses RGB format)
+        # face_recognition library expects RGB format, so no conversion needed
+        rgb_image = np.array(image)
         
-        rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2RGB)
+        # Ensure image is in RGB format (handle RGBA or grayscale)
+        if len(rgb_image.shape) == 2:
+            # Grayscale - convert to RGB
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2RGB)
+        elif rgb_image.shape[2] == 4:
+            # RGBA - convert to RGB
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
         
         # Resize for faster processing
         height, width = rgb_image.shape[:2]
@@ -1776,9 +2592,331 @@ def background_attendance_check():
             'message': f'Attendance recorded for {len(recognized_students)} students'
         })
     except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ============================================================================
+# SENKU AUTONOMOUS TEACHING API ENDPOINTS
+# ============================================================================
+
+# Global state for Senku teaching sessions
+senku_state = {
+    'current_teacher': None,
+    'teaching_active': False,
+    'teaching_stopped': False,
+    'teaching_paused': False,
+    'curriculum_cache': {}
+}
+
+def save_senku_curriculum(pdf_hash, curriculum):
+    """Save curriculum to JSON file and cache."""
+    curriculum_dir = pathlib.Path('./data/curriculum')
+    curriculum_dir.mkdir(parents=True, exist_ok=True)
+    curriculum_file = curriculum_dir / f'{pdf_hash}.json'
+    
+    with open(curriculum_file, 'w', encoding='utf-8') as f:
+        json.dump(curriculum, f, indent=2)
+    
+    senku_state['curriculum_cache'][pdf_hash] = curriculum
+
+def load_senku_curriculum(pdf_hash):
+    """Load curriculum from JSON file or cache."""
+    if pdf_hash in senku_state['curriculum_cache']:
+        return senku_state['curriculum_cache'][pdf_hash]
+    
+    curriculum_file = pathlib.Path('./data/curriculum') / f'{pdf_hash}.json'
+    if curriculum_file.exists():
+        with open(curriculum_file, 'r', encoding='utf-8') as f:
+            curriculum = json.load(f)
+            senku_state['curriculum_cache'][pdf_hash] = curriculum
+            return curriculum
+    
+    return None
+
+@app.route('/api/senku/status', methods=['GET'])
+@login_required
+def senku_status():
+    """Get Senku system status."""
+    return jsonify({
+        'status': 'online',
+        'gemini_available': gemini_available,
+        'teaching_active': senku_state['teaching_active']
+    })
+
+@app.route('/api/senku/process', methods=['POST'])
+@login_required
+def senku_process_textbook():
+    """Process uploaded PDF textbook for Senku autonomous teaching."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Invalid file type. Only PDF allowed'}), 400
+    
+    try:
+        import tempfile
+        from senku_ingestion.pdf_fingerprint import compute_bytes_hash, get_chroma_path_for_pdf, pdf_embeddings_exist
+        from senku_ingestion.document_loader import DocumentLoader
+        from senku_ingestion.text_processor import chunk_text
+        from senku_ingestion.curriculum_extractor import CurriculumExtractor
+        from vector_store.database import VectorDatabase
+        from vector_store.embeddings import EmbeddingGenerator
+        
+        # Read file bytes
+        pdf_bytes = file.read()
+        
+        def generate():
+            """Generator for streaming progress updates."""
+            try:
+                # Step 1: Compute fingerprint
+                yield f'data: {json.dumps({"step": "fingerprint", "progress": 10, "message": "Computing PDF fingerprint..."})}\\n\\n'
+                
+                pdf_hash = compute_bytes_hash(pdf_bytes)
+                
+                # Step 2: Check for existing embeddings
+                yield f'data: {json.dumps({"step": "check", "progress": 20, "message": "Checking for existing embeddings..."})}\\n\\n'
+                
+                chroma_path = get_chroma_path_for_pdf(pdf_hash, base_dir='./data/chroma_db')
+                
+                if pdf_embeddings_exist(pdf_hash, base_dir='./data/chroma_db'):
+                    # Embeddings exist - reuse them
+                    yield f'data: {json.dumps({"step": "check", "progress": 40, "message": "Found existing embeddings! Reusing..."})}\\n\\n'
+                    
+                    db = VectorDatabase(
+                        collection_name='ai_tutor_documents',
+                        persist_directory=str(chroma_path)
+                    )
+                    
+                    # Still need text for curriculum
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                        tmp_file.write(pdf_bytes)
+                        tmp_path = tmp_file.name
+                    
+                    yield f'data: {json.dumps({"step": "extract", "progress": 50, "message": "Extracting text for curriculum..."})}\\n\\n'
+                    
+                    loader = DocumentLoader()
+                    full_text = loader.load_pdf(tmp_path)
+                    os.unlink(tmp_path)
+                    
+                    chunks = None
+                    
+                else:
+                    # New PDF - full processing
+                    yield f'data: {json.dumps({"step": "extract", "progress": 30, "message": "Extracting text from PDF..."})}\\n\\n'
+                    
+                    # Save temp file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                        tmp_file.write(pdf_bytes)
+                        tmp_path = tmp_file.name
+                    
+                    loader = DocumentLoader()
+                    full_text = loader.load_pdf(tmp_path)
+                    
+                    # Step 3: Chunk text
+                    yield f'data: {json.dumps({"step": "chunk", "progress": 40, "message": "Chunking text..."})}\\n\\n'
+                    
+                    chunks = chunk_text(full_text, chunk_size=600, chunk_overlap=60)
+                    
+                    # Step 4: Generate embeddings
+                    yield f'data: {json.dumps({"step": "embed", "progress": 50, "message": "Generating embeddings (this may take a while)..."})}\\n\\n'
+                    
+                    generator = EmbeddingGenerator(provider='gemini')
+                    embeddings = generator.generate_embeddings_batch(chunks)
+                    
+                    # Filter valid embeddings
+                    valid_chunks = []
+                    valid_embeddings = []
+                    for i, emb in enumerate(embeddings):
+                        if emb and len(emb) > 0:
+                            valid_chunks.append(chunks[i])
+                            valid_embeddings.append(emb)
+                    
+                    if not valid_chunks:
+                        yield f'data: {json.dumps({"error": "Failed to generate embeddings"})}\\n\\n'
+                        return
+                    
+                    # Step 5: Store in database
+                    yield f'data: {json.dumps({"step": "store", "progress": 70, "message": "Storing in vector database..."})}\\n\\n'
+                    
+                    db = VectorDatabase(
+                        collection_name='ai_tutor_documents',
+                        persist_directory=str(chroma_path)
+                    )
+                    db.add_documents(valid_chunks, valid_embeddings)
+                    
+                    os.unlink(tmp_path)
+                
+                # Step 6: Extract curriculum
+                yield f'data: {json.dumps({"step": "curriculum", "progress": 80, "message": "Extracting curriculum..."})}\\n\\n'
+                
+                extractor = CurriculumExtractor()
+                curriculum = extractor.extract_curriculum(full_text, chunks)
+                
+                # Save curriculum
+                save_senku_curriculum(pdf_hash, curriculum)
+                
+                # Convert curriculum to serializable format
+                curriculum_data = [
+                    {'title': unit['title'], 'type': unit['type']}
+                    for unit in curriculum
+                ]
+                
+                # Complete
+                yield f'data: {json.dumps({"step": "complete", "progress": 100, "message": "Processing complete!", "curriculum": curriculum_data, "pdf_hash": pdf_hash})}\\n\\n'
+                
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                yield f'data: {json.dumps({"error": str(e)})}\\n\\n'
+        
+        return app.response_class(generate(), mimetype='text/event-stream')
+        
+    except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/senku/teach', methods=['POST'])
+@login_required
+def senku_start_teaching():
+    """Start Senku autonomous teaching session."""
+    try:
+        from senku_ingestion.pdf_fingerprint import get_chroma_path_for_pdf
+        from vector_store.database import VectorDatabase
+        from vector_store.embeddings import EmbeddingGenerator
+        from teaching.autonomous_teacher import AutonomousTeacher
+        
+        data = request.json
+        pdf_hash = data.get('pdf_hash')
+        voice_enabled = data.get('voice_enabled', True)
+        
+        if not pdf_hash:
+            return jsonify({'error': 'PDF hash required'}), 400
+        
+        # Get ChromaDB path
+        chroma_path = get_chroma_path_for_pdf(pdf_hash, base_dir='./data/chroma_db')
+        
+        if not os.path.exists(chroma_path):
+            return jsonify({'error': 'PDF not processed'}), 400
+        
+        # Initialize components
+        db = VectorDatabase(
+            collection_name='ai_tutor_documents',
+            persist_directory=str(chroma_path)
+        )
+        embedder = EmbeddingGenerator(provider='gemini')
+        
+        # Load curriculum
+        curriculum = load_senku_curriculum(pdf_hash)
+        
+        if not curriculum:
+            return jsonify({'error': 'Curriculum not found. Please reprocess the PDF.'}), 400
+        
+        # Create autonomous teacher
+        teacher = AutonomousTeacher(
+            vector_database=db,
+            embedding_generator=embedder,
+            curriculum=curriculum,
+            pdf_hash=pdf_hash,
+            ollama_model='mistral'
+        )
+        
+        # Enable voice if requested
+        if voice_enabled:
+            try:
+                teacher.enable_voice(rate=130, volume=1.0, voice_gender='male')
+            except Exception as e:
+                print(f"Warning: Could not enable voice: {e}")
+        
+        senku_state['current_teacher'] = teacher
+        senku_state['teaching_active'] = True
+        senku_state['teaching_stopped'] = False
+        senku_state['teaching_paused'] = False
+        
+        def generate():
+            """Generator for streaming teaching updates."""
+            try:
+                import time
+                for progress in teacher.teach_entire_curriculum_with_highlighting():
+                    # Check if teaching was stopped
+                    if senku_state.get('teaching_stopped', False):
+                        yield f'data: {json.dumps({"type": "stopped", "message": "Teaching stopped by user"})}\\n\\n'
+                        break
+                    
+                    # Handle pause
+                    while senku_state.get('teaching_paused', False):
+                        time.sleep(0.5)
+                        if senku_state.get('teaching_stopped', False):
+                            yield f'data: {json.dumps({"type": "stopped", "message": "Teaching stopped"})}\\n\\n'
+                            break
+                    
+                    if senku_state.get('teaching_stopped', False):
+                        break
+                    
+                    # Yield progress update
+                    yield f'data: {json.dumps(progress)}\\n\\n'
+                
+                senku_state['teaching_active'] = False
+                senku_state['current_teacher'] = None
+                senku_state['teaching_stopped'] = False
+                senku_state['teaching_paused'] = False
+                
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                yield f'data: {json.dumps({"error": str(e)})}\\n\\n'
+                senku_state['teaching_active'] = False
+                senku_state['current_teacher'] = None
+        
+        return app.response_class(generate(), mimetype='text/event-stream')
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/senku/teach/pause', methods=['POST'])
+@login_required
+def senku_pause_teaching():
+    """Pause or resume Senku teaching session."""
+    try:
+        current_state = senku_state.get('teaching_paused', False)
+        senku_state['teaching_paused'] = not current_state
+        status = 'paused' if senku_state['teaching_paused'] else 'resumed'
+        return jsonify({'status': status, 'paused': senku_state['teaching_paused']})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/senku/teach/stop', methods=['POST'])
+@login_required
+def senku_stop_teaching():
+    """Stop Senku teaching session."""
+    try:
+        senku_state['teaching_stopped'] = True
+        senku_state['teaching_paused'] = False
+        return jsonify({'status': 'stopped'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# END SENKU API ENDPOINTS
+# ============================================================================
+
+@app.route('/senku-ui')
+def senku_ui():
+    """Serve the original Senku web interface."""
+    return send_from_directory('static/senku', 'index.html')
+
+@app.route('/senku-ui/<path:filename>')
+def senku_static(filename):
+    """Serve Senku static files (JS, CSS)."""
+    return send_from_directory('static/senku', filename)
+
+
 
 if __name__ == '__main__':
     # Initialize databases

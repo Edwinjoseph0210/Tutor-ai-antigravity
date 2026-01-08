@@ -1,141 +1,92 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Landing from './pages/Landing';
-import Auth from './pages/Auth';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Students from './pages/Students';
-import Attendance from './pages/Attendance';
-import Reports from './pages/Reports';
-import FaceRecognition from './pages/FaceRecognition';
-import ClassAttendance from './pages/ClassAttendance';
+import AttendanceMarking from './pages/AttendanceMarking';
+import AddStudents from './pages/AddStudents';
 import StudyMaterials from './pages/StudyMaterials';
-import AILecture from './pages/AILecture';
-import CurriculumReview from './pages/CurriculumReview';
-import Timetable from './pages/Timetable';
-import Layout from './components/Layout';
+import LiveLecture from './pages/LiveLecture';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return (
-      <div className="loading-spinner">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading...</span>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)'
+      }}>
+        <div style={{ color: 'white', fontSize: '1.5rem' }}>
+          <i className="fas fa-spinner fa-spin" style={{ marginRight: '1rem' }} />
+          Loading...
         </div>
       </div>
     );
   }
-  
+
   return isAuthenticated ? children : <Navigate to="/login" />;
 }
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
-  
+
   return (
     <Routes>
-      <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
+      <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Login />} />
+
       <Route
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <Layout>
-              <Dashboard />
-            </Layout>
+            <Dashboard />
           </ProtectedRoute>
         }
       />
+
       <Route
-        path="/students"
+        path="/attendance-marking"
         element={
           <ProtectedRoute>
-            <Layout>
-              <Students />
-            </Layout>
+            <AttendanceMarking />
           </ProtectedRoute>
         }
       />
+
       <Route
-        path="/attendance"
+        path="/add-students"
         element={
           <ProtectedRoute>
-            <Layout>
-              <Attendance />
-            </Layout>
+            <AddStudents />
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/reports"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <Reports />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/face-recognition"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <FaceRecognition />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/class-attendance"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <ClassAttendance />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+
       <Route
         path="/study-materials"
         element={
           <ProtectedRoute>
-            <Layout>
-              <StudyMaterials />
-            </Layout>
+            <StudyMaterials />
           </ProtectedRoute>
         }
       />
+
       <Route
-        path="/ai-lecture"
+        path="/live-lecture"
         element={
           <ProtectedRoute>
-            <AILecture />
+            <LiveLecture />
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/curriculum-review"
-        element={
-          <ProtectedRoute>
-            <CurriculumReview />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/timetable"
-        element={
-          <ProtectedRoute>
-            <Layout>
-              <Timetable />
-            </Layout>
-          </ProtectedRoute>
-        }
-      />
+
+      {/* Redirect any unknown routes to dashboard */}
+      <Route path="*" element={<Navigate to="/dashboard" />} />
     </Routes>
   );
 }
@@ -144,9 +95,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="App">
-          <AppRoutes />
-        </div>
+        <AppRoutes />
       </Router>
     </AuthProvider>
   );

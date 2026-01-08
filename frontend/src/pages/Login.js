@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './Login.css';
@@ -10,6 +10,19 @@ const Login = () => {
   const [focusedField, setFocusedField] = useState(null);
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  // Mouse move effect for subtle parallax
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      const moveX = (e.clientX - window.innerWidth / 2) * 0.01;
+      const moveY = (e.clientY - window.innerHeight / 2) * 0.01;
+      document.documentElement.style.setProperty('--move-x', `${moveX}deg`);
+      document.documentElement.style.setProperty('--move-y', `${moveY}deg`);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,169 +52,100 @@ const Login = () => {
 
   return (
     <div className="login-wrapper">
-      {/* Animated background elements */}
-      <div className="login-bg-elements">
-        <div className="floating-cube cube-1"></div>
-        <div className="floating-cube cube-2"></div>
-        <div className="floating-cube cube-3"></div>
-        <div className="glow-orb glow-1"></div>
-        <div className="glow-orb glow-2"></div>
+      <div className="aurora-bg">
+        <div className="aurora-light light-1"></div>
+        <div className="aurora-light light-2"></div>
+        <div className="aurora-light light-3"></div>
       </div>
 
-      <div className="login-main">
-        {/* Left Side - Branding */}
-        <div className="login-left">
-          <div className="login-brand">
-            <div className="brand-icon-container">
-              <div className="brand-icon">
-                <i className="fas fa-graduation-cap"></i>
-              </div>
+      <div className="login-card-container">
+        <div className="glass-card">
+          <div className="brand-header">
+            <div className="brand-logo-pulse">
+              <i className="fas fa-brain"></i>
             </div>
             <h1>AI Tutor</h1>
-            <p className="brand-subtitle">Intelligent Learning Platform</p>
+            <p className="brand-tagline">Experience the Future of Learning</p>
           </div>
 
-          <div className="features-showcase">
-            <div className="feature-item">
-              <div className="feature-icon">
-                <i className="fas fa-face-smile"></i>
-              </div>
-              <div>
-                <h4>Face Recognition</h4>
-                <p>Smart attendance tracking</p>
-              </div>
-            </div>
-
-            <div className="feature-item">
-              <div className="feature-icon">
-                <i className="fas fa-brain"></i>
-              </div>
-              <div>
-                <h4>AI Lectures</h4>
-                <p>Personalized learning paths</p>
-              </div>
-            </div>
-
-            <div className="feature-item">
-              <div className="feature-icon">
-                <i className="fas fa-chart-line"></i>
-              </div>
-              <div>
-                <h4>Analytics</h4>
-                <p>Real-time performance insights</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Side - Login Form */}
-        <div className="login-right">
-          <div className="login-container">
-            <div className="login-header-top">
-              <h2>Welcome Back</h2>
-              <p>Sign in to your account</p>
-            </div>
-
+          <form onSubmit={handleSubmit} className="modern-form">
             {error && (
-              <div className="error-alert">
-                <div className="error-icon">
-                  <i className="fas fa-exclamation-circle"></i>
-                </div>
-                <div className="error-content">
-                  <p>{error}</p>
-                </div>
+              <div className="error-message">
+                <i className="fas fa-exclamation-circle"></i>
+                <span>{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="login-form-modern">
-              <div className={`form-group ${focusedField === 'username' ? 'focused' : ''} ${credentials.username ? 'filled' : ''}`}>
-                <div className="input-wrapper">
-                  <div className="input-icon">
-                    <i className="fas fa-envelope"></i>
-                  </div>
-                  <input
-                    type="text"
-                    id="username"
-                    name="username"
-                    value={credentials.username}
-                    onChange={handleChange}
-                    onFocus={() => setFocusedField('username')}
-                    onBlur={() => setFocusedField(null)}
-                    placeholder="Username or Email"
-                    required
-                    aria-label="username"
-                  />
-                </div>
+            <div className={`input-group ${focusedField === 'username' || credentials.username ? 'active' : ''}`}>
+              <div className="input-icon">
+                <i className="fas fa-user-astronaut"></i>
               </div>
-
-              <div className={`form-group ${focusedField === 'password' ? 'focused' : ''} ${credentials.password ? 'filled' : ''}`}>
-                <div className="input-wrapper">
-                  <div className="input-icon">
-                    <i className="fas fa-lock"></i>
-                  </div>
-                  <input
-                    type="password"
-                    id="password"
-                    name="password"
-                    value={credentials.password}
-                    onChange={handleChange}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    placeholder="Password"
-                    required
-                    aria-label="password"
-                  />
-                </div>
-              </div>
-
-              <div className="remember-forgot">
-                <label className="remember-me">
-                  <input type="checkbox" defaultChecked />
-                  <span>Remember me</span>
-                </label>
-                <a href="#forgot" className="forgot-link">Forgot password?</a>
-              </div>
-
-              <button
-                type="submit"
-                className="btn-login-modern"
-                disabled={loading}
-              >
-                <span className="btn-content">
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span>
-                      <span>Signing in...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Sign In</span>
-                      <i className="fas fa-arrow-right"></i>
-                    </>
-                  )}
-                </span>
-              </button>
-
-              <div className="divider">
-                <span>or continue with</span>
-              </div>
-
-              <div className="social-login">
-                <button type="button" className="social-btn" title="Google">
-                  <i className="fab fa-google"></i>
-                </button>
-                <button type="button" className="social-btn" title="GitHub">
-                  <i className="fab fa-github"></i>
-                </button>
-                <button type="button" className="social-btn" title="Microsoft">
-                  <i className="fab fa-microsoft"></i>
-                </button>
-              </div>
-            </form>
-
-            <div className="login-footer-modern">
-              <small>Demo: <strong>admin</strong> / <strong>admin123</strong></small>
+              <input
+                type="text"
+                name="username"
+                value={credentials.username}
+                onChange={handleChange}
+                onFocus={() => setFocusedField('username')}
+                onBlur={() => setFocusedField(null)}
+                required
+              />
+              <label>Username</label>
+              <div className="input-border"></div>
             </div>
+
+            <div className={`input-group ${focusedField === 'password' || credentials.password ? 'active' : ''}`}>
+              <div className="input-icon">
+                <i className="fas fa-fingerprint"></i>
+              </div>
+              <input
+                type="password"
+                name="password"
+                value={credentials.password}
+                onChange={handleChange}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
+                required
+              />
+              <label>Password</label>
+              <div className="input-border"></div>
+            </div>
+
+            <div className="form-options">
+              <label className="checkbox-container">
+                <input type="checkbox" defaultChecked />
+                <span className="checkmark"></span>
+                Remember me
+              </label>
+              <a href="#forgot" className="forgot-link">Forgot password?</a>
+            </div>
+
+            <button type="submit" className="login-btn" disabled={loading}>
+              <span className="btn-bg"></span>
+              <span className="btn-text">
+                {loading ? 'Authenticating...' : 'Sign In'}
+              </span>
+              {!loading && <i className="fas fa-arrow-right"></i>}
+            </button>
+
+            <div className="divider">
+              <span>Or continue with</span>
+            </div>
+
+            <div className="social-login">
+              <button type="button" className="social-btn google">
+                <i className="fab fa-google"></i>
+              </button>
+              <button type="button" className="social-btn github">
+                <i className="fab fa-github"></i>
+              </button>
+              <button type="button" className="social-btn apple">
+                <i className="fab fa-apple"></i>
+              </button>
+            </div>
+          </form>
+
+          <div className="demo-credentials">
+            Demo: <strong>admin</strong> / <strong>admin123</strong>
           </div>
         </div>
       </div>

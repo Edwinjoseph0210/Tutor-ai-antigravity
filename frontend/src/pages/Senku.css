@@ -1,0 +1,394 @@
+/* Senku Autonomous Teaching - Styling */
+
+.senku-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.senku-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.senku-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.5rem;
+}
+
+.senku-subtitle {
+  font-size: 1.1rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* Error Messages */
+.senku-error {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Upload Section */
+.senku-upload-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.senku-dropzone {
+  width: 100%;
+  max-width: 600px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #f8fafc;
+}
+
+.senku-dropzone:hover {
+  border-color: #667eea;
+  background: #f1f5f9;
+  transform: translateY(-2px);
+}
+
+.senku-upload-icon {
+  font-size: 4rem;
+  color: #667eea;
+  margin-bottom: 1rem;
+}
+
+.senku-dropzone h3 {
+  font-size: 1.5rem;
+  color: #1e293b;
+  margin-bottom: 0.5rem;
+}
+
+.senku-dropzone p {
+  color: #64748b;
+  margin: 0;
+}
+
+.senku-file-selected {
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: #dbeafe;
+  border-radius: 8px;
+  color: #1e40af;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Buttons */
+.senku-btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.senku-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.senku-btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.senku-btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.senku-btn-success {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.senku-btn-success:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.senku-btn-secondary {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.senku-btn-secondary:hover:not(:disabled) {
+  background: #cbd5e1;
+}
+
+.senku-btn-warning {
+  background: #fbbf24;
+  color: #78350f;
+}
+
+.senku-btn-warning:hover:not(:disabled) {
+  background: #f59e0b;
+}
+
+.senku-btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.senku-btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+/* Processing Progress */
+.senku-processing {
+  max-width: 600px;
+  margin: 2rem auto;
+  text-align: center;
+}
+
+.senku-progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.senku-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+}
+
+.senku-status-message {
+  color: #64748b;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+/* Curriculum Display */
+.senku-curriculum {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.senku-curriculum h2 {
+  font-size: 1.75rem;
+  color: #1e293b;
+  margin-bottom: 1.5rem;
+}
+
+.senku-curriculum-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.senku-curriculum-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.senku-curriculum-item i {
+  color: #667eea;
+  font-size: 1.25rem;
+}
+
+.senku-unit-title {
+  flex: 1;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.senku-unit-type {
+  padding: 0.25rem 0.75rem;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Controls */
+.senku-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.senku-voice-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.senku-voice-toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 500;
+  color: #475569;
+}
+
+.senku-voice-toggle input[type="checkbox"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+
+/* Teaching Display */
+.senku-teaching {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.senku-teaching-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.senku-teaching-header h2 {
+  font-size: 1.5rem;
+  color: #1e293b;
+  margin: 0;
+}
+
+.senku-teaching-controls {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.senku-lesson-content {
+  min-height: 400px;
+}
+
+.senku-text-display {
+  line-height: 1.8;
+  font-size: 1.1rem;
+  color: #334155;
+}
+
+.senku-text-display p {
+  margin-bottom: 1rem;
+  transition: all 0.3s ease;
+}
+
+.senku-highlighted {
+  background: linear-gradient(120deg, #fef3c7 0%, #fde68a 100%);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+  animation: highlight-pulse 0.5s ease;
+}
+
+@keyframes highlight-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.senku-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+.senku-loading i {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  color: #667eea;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .senku-container {
+    padding: 1rem;
+  }
+
+  .senku-header h1 {
+    font-size: 2rem;
+  }
+
+  .senku-teaching-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .senku-teaching-controls {
+    width: 100%;
+  }
+
+  .senku-teaching-controls button {
+    flex: 1;
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.senku-curriculum,
+.senku-teaching {
+  animation: fadeIn 0.4s ease;
+}

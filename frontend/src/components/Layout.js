@@ -31,7 +31,6 @@ const Layout = ({ children }) => {
 
         <nav className="nav flex-column flex-grow-1">
           <NavItem to="/dashboard" icon="fa-tachometer-alt" label="Dashboard" />
-          <NavItem to="/face-recognition" icon="fa-camera" label="Face Recognition" />
           <NavItem to="/class-attendance" icon="fa-chalkboard-teacher" label="Class Attendance" />
           <NavItem to="/students" icon="fa-users" label="Students" />
           <NavItem to="/attendance" icon="fa-calendar-check" label="Attendance Logs" />

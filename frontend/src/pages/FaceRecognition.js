@@ -94,13 +94,13 @@ const FaceRecognition = () => {
       setIsRunning(true);
       setStatus('Camera started successfully');
 
-      // Start automatic recognition every 5 minutes
+      // Start continuous automatic recognition every 3 seconds for real-time detection
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
       intervalRef.current = setInterval(() => {
         captureAndRecognize();
-      }, 300000); // 300,000 ms = 5 minutes
+      }, 3000); // 3,000 ms = 3 seconds for real-time continuous recognition
 
       // Do an immediate capture on start
       captureAndRecognize();
@@ -153,70 +153,70 @@ const FaceRecognition = () => {
           // Process ALL recognized faces
           const recognized = data.faces.filter(face => face.name !== 'Unknown');
           const unknownCount = data.faces.length - recognized.length;
-          
+
           setRecognizedFaces(data.faces);
-          
+
           if (recognized.length > 0) {
             // Set first recognized face for display (backward compatibility)
             setRecognizedName(recognized[0].name);
             setConfidence(recognized[0].confidence);
-            
-            // Mark attendance for ALL recognized faces
-            const namesToMark = [];
-            const recognitionResults = [];
-            
-            for (const face of recognized) {
-              const confValue = parseFloat(face.confidence.replace('%', ''));
-              if (confValue > 60) {
-                namesToMark.push(face.name);
-                recognitionResults.push(`${face.name} (${face.confidence})`);
-              }
-            }
-            
-            if (namesToMark.length > 0) {
-              setStatus(`✓ Recognized ${namesToMark.length} person(s): ${recognitionResults.join(', ')}. Marking attendance...`);
-              
-              try {
-                // Automatically mark attendance for all recognized faces
-                await markAttendanceForMultipleStudents(namesToMark);
-                
-                // Small delay to ensure database is updated
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                // Refresh the students list to show updated attendance
-                await fetchRegisteredStudents();
-                
-                setStatus(`✓ Attendance marked successfully! ${namesToMark.length} Present, others Absent`);
-              } catch (error) {
-                console.error('Error marking attendance:', error);
-                setStatus(`⚠ Error marking attendance: ${error.message}. Please try again.`);
-                // Still refresh to show current state
-                await fetchRegisteredStudents();
-              }
-            } else {
-              setStatus(`Recognized ${recognized.length} person(s) but confidence too low for auto-mark.`);
-            }
-            
-            if (unknownCount > 0) {
-              setStatus(prev => prev + ` (${unknownCount} unknown face(s) detected)`);
-            }
+
+            // Build recognition results summary
+            const recognitionResults = recognized.map(face =>
+              `${face.name} (${face.confidence})`
+            ).join(', ');
+
+            // Filter for high confidence (>= 90%) - increased to reduce false positives
+            const highConfidence = recognized.filter(face => {
+              const conf = parseFloat(face.confidence?.replace('%', '') || '0');
+              return conf >= 90;
+            });
+
+            const lowConfidence = recognized.filter(face => {
+              const conf = parseFloat(face.confidence?.replace('%', '') || '0');
+              return conf < 90;
+            });
+
+            // Update status with recognition results
+            const statusMsg = lowConfidence.length > 0
+              ? `✓ Detected ${recognized.length} student(s): ${recognitionResults}. ${highConfidence.length} with ≥90% confidence. Click "Mark Attendance" to save.`
+              : `✓ Detected ${recognized.length} student(s): ${recognitionResults}${unknownCount > 0 ? ` + ${unknownCount} unknown` : ''}. Click "Mark Attendance" to save.`;
+
+            setStatus(statusMsg);
+
+            // Update the registered students list to show who is detected (visual only)
+            // Only show Present for students with >= 90% confidence
+            setRegisteredStudents(prev =>
+              prev.map(student => ({
+                ...student,
+                status: highConfidence.some(face => face.name === student.name) ? 'Present' : 'Absent'
+              }))
+            );
           } else {
-            setStatus(`${data.faces.length} face(s) detected but none recognized. ${unknownCount > 0 ? `${unknownCount} unknown.` : ''}`);
+            setStatus(`${data.faces.length} face(s) detected but none recognized.${unknownCount > 0 ? ` ${unknownCount} unknown.` : ''}`);
             setRecognizedName('Unknown');
             setConfidence('');
+            // Reset all to Absent when no one is recognized
+            setRegisteredStudents(prev =>
+              prev.map(student => ({ ...student, status: 'Absent' }))
+            );
           }
         } else {
           setStatus('No faces detected.');
           setRecognizedName('');
           setConfidence('');
           setRecognizedFaces([]);
+          // Reset all to Absent when no faces detected
+          setRegisteredStudents(prev =>
+            prev.map(student => ({ ...student, status: 'Absent' }))
+          );
         }
       } else {
         setStatus('Error: ' + data.message);
       }
     } catch (error) {
       console.error('Recognition error:', error);
-      
+
       // Check if it's an authentication error
       if (error.response?.status === 401) {
         setStatus('Authentication required. Please log in again.');
@@ -236,7 +236,7 @@ const FaceRecognition = () => {
     }
   };
 
-  const markAttendanceForMultipleStudents = async (recognizedNames) => {
+  const markAttendanceForMultipleStudents = async (recognizedNamesWithConfidence) => {
     // Get students (from faces or fallback) to allow auto-create in backend
     const studentsResponse = await faceRecognitionAPI.getStudentsFromFaces();
     if (!studentsResponse.data.success) {
@@ -246,9 +246,14 @@ const FaceRecognition = () => {
     const allStudents = studentsResponse.data.data || [];
     const errors = [];
 
+    // Filter recognized names to only include those with confidence >= 90%
+    const highConfidenceNames = recognizedNamesWithConfidence
+      .filter(item => item.confidence >= 90)
+      .map(item => item.name);
+
     for (const student of allStudents) {
       const studentName = student.name;
-      const status = recognizedNames.includes(studentName) ? 'Present' : 'Absent';
+      const status = highConfidenceNames.includes(studentName) ? 'Present' : 'Absent';
 
       try {
         await attendanceAPI.markAttendanceBatch({
@@ -304,18 +309,59 @@ const FaceRecognition = () => {
   };
 
   const markAttendance = async () => {
-    // Get all recognized faces (excluding Unknown)
-    const recognizedNames = recognizedFaces
+    // Get all recognized faces with confidence scores (excluding Unknown)
+    const recognizedWithConfidence = recognizedFaces
       .filter(face => face.name !== 'Unknown')
-      .map(face => face.name);
-    
-    if (recognizedNames.length === 0) {
-      setStatus('No recognized faces to mark attendance for.');
+      .map(face => ({
+        name: face.name,
+        confidence: parseFloat(face.confidence?.replace('%', '') || '0')
+      }));
+
+    if (recognizedWithConfidence.length === 0) {
+      setStatus('⚠ No recognized faces to mark attendance for.');
       return;
     }
-    
-    // Mark attendance for all students: Present for recognized, Absent for others
-    await markAttendanceForMultipleStudents(recognizedNames);
+
+    // Filter for high confidence (>= 90%)
+    const highConfidence = recognizedWithConfidence.filter(item => item.confidence >= 90);
+    const lowConfidence = recognizedWithConfidence.filter(item => item.confidence < 90);
+
+    if (highConfidence.length === 0) {
+      setStatus('⚠ No faces with confidence ≥ 90%. Cannot mark attendance.');
+      return;
+    }
+
+    try {
+      const totalRecognized = recognizedWithConfidence.length;
+      const willMark = highConfidence.length;
+
+      setStatus(`📝 Marking attendance for ${willMark} student(s) with ≥90% confidence...`);
+
+      if (lowConfidence.length > 0) {
+        console.log(`Skipping ${lowConfidence.length} student(s) with <90% confidence:`,
+          lowConfidence.map(s => `${s.name} (${s.confidence}%)`).join(', '));
+      }
+
+      // Mark attendance: Present for high-confidence recognized, Absent for others
+      await markAttendanceForMultipleStudents(recognizedWithConfidence);
+
+      // Refresh the students list to show updated attendance
+      await fetchRegisteredStudents();
+
+      const statusMsg = lowConfidence.length > 0
+        ? `✅ Attendance marked! ${willMark} Present (≥90%), ${lowConfidence.length} skipped (<90%). Navigating...`
+        : `✅ Attendance marked successfully! ${willMark} Present. Navigating to Attendance Page...`;
+
+      setStatus(statusMsg);
+
+      // Navigate to Attendance Page after a brief delay to show success message
+      setTimeout(() => {
+        window.location.href = '/attendance';
+      }, 1500);
+    } catch (error) {
+      console.error('Error marking attendance:', error);
+      setStatus(`❌ Error marking attendance: ${error.message}`);
+    }
   };
 
   return (
@@ -429,9 +475,8 @@ const FaceRecognition = () => {
                           }}
                         >
                           <div
-                            className={`position-absolute top-0 start-0 px-2 py-1 text-white ${
-                              isRecognized ? 'bg-success' : 'bg-warning'
-                            }`}
+                            className={`position-absolute top-0 start-0 px-2 py-1 text-white ${isRecognized ? 'bg-success' : 'bg-warning'
+                              }`}
                             style={{
                               fontSize: '0.75rem',
                               fontWeight: 'bold',
@@ -451,11 +496,10 @@ const FaceRecognition = () => {
                   <div className="position-absolute bottom-0 start-0 w-100 p-3" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)' }}>
                     <div className="d-flex flex-wrap gap-2 justify-content-center">
                       {recognizedFaces.map((face, idx) => (
-                        <div 
+                        <div
                           key={idx}
-                          className={`d-inline-flex align-items-center px-3 py-2 rounded-pill ${
-                            face.name !== 'Unknown' ? 'bg-success bg-opacity-90' : 'bg-warning bg-opacity-90'
-                          } text-white`}
+                          className={`d-inline-flex align-items-center px-3 py-2 rounded-pill ${face.name !== 'Unknown' ? 'bg-success bg-opacity-90' : 'bg-warning bg-opacity-90'
+                            } text-white`}
                           style={{ fontSize: '0.9rem' }}
                         >
                           <i className={`fas ${face.name !== 'Unknown' ? 'fa-check-circle' : 'fa-question-circle'} me-2`}></i>
@@ -570,10 +614,10 @@ const FaceRecognition = () => {
               <h6 className="text-muted text-uppercase mb-3" style={{ fontSize: '0.75rem' }}>Instructions</h6>
               <ol className="ps-3 mb-0 text-muted small">
                 <li className="mb-2">Select your camera from the dropdown</li>
-                <li className="mb-2">Click "Start Camera" to begin feed</li>
-                <li className="mb-2">Position face within the frame markers</li>
-                <li className="mb-2">Click "Recognize" to identify student</li>
-                <li>Click "Mark Present" to record attendance</li>
+                <li className="mb-2">Click "Start Camera" to begin continuous detection</li>
+                <li className="mb-2">System automatically detects faces every 3 seconds</li>
+                <li className="mb-2">Registered Students section updates in real-time</li>
+                <li>Click "Mark Attendance" to save and view records</li>
               </ol>
             </div>
           </div>

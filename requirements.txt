@@ -324,3 +324,8 @@ wheel==0.43.0
 wrapt==1.17.2
 wsproto==1.2.0
 yarl==1.20.1
+
+# Senku Autonomous Teaching Dependencies
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+pygame>=2.5.0

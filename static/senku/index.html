@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lecture - Autonomous AI Teacher</title>
+    <meta name="description"
+        content="Experience the future of learning with Lecture, an autonomous AI teacher that transforms textbooks into engaging, personalized lessons.">
+    <link rel="stylesheet" href="/senku-ui/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Background Elements -->
+    <div class="bg-gradient"></div>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M16 4L4 10L16 16L28 10L16 4Z" fill="url(#gradient1)" />
+                        <path d="M4 16L16 22L28 16" stroke="url(#gradient1)" stroke-width="2" stroke-linecap="round" />
+                        <path d="M4 22L16 28L28 22" stroke="url(#gradient1)" stroke-width="2" stroke-linecap="round" />
+                        <defs>
+                            <linearGradient id="gradient1" x1="4" y1="4" x2="28" y2="28">
+                                <stop offset="0%" stop-color="#667eea" />
+                                <stop offset="100%" stop-color="#764ba2" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <span class="brand-text">Lecture</span>
+            </div>
+            <div class="nav-links">
+                <a href="#upload" class="nav-link active">Upload</a>
+                <a href="#curriculum" class="nav-link">Curriculum</a>
+                <a href="#teach" class="nav-link">Teaching</a>
+            </div>
+            <div class="nav-status">
+                <div class="status-indicator" id="systemStatus">
+                    <div class="status-dot"></div>
+                    <span class="status-text">System Ready</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <main class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path
+                            d="M10 2C5.58 2 2 5.58 2 10s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z" />
+                        <circle cx="10" cy="10" r="3" />
+                    </svg>
+                    System Status
+                </h3>
+                <div class="status-card">
+                    <div class="status-item">
+                        <span class="status-label">Backend</span>
+                        <span class="status-value" id="backendStatus">
+                            <span style="color: #00f2fe;"> Ready</span>
+                        </span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">PDF Processed</span>
+                        <span class="status-value" id="pdfStatus"><span style="color: #00f2fe;">No</span></span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Curriculum Units</span>
+                        <span class="status-value" id="curriculumCount">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Teaching Status</span>
+                        <span class="status-value" id="teachingStatus">Ready</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <h3 class="sidebar-title">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm1 11H9v-2h2v2zm0-4H9V5h2v4z" />
+                    </svg>
+                    Quick Info
+                </h3>
+                <div class="info-card">
+                    <p class="info-text">Lecture uses advanced AI to autonomously teach entire textbooks with natural,
+                        engaging speech.</p>
+                    <div class="info-features">
+                        <div class="feature-tag">✨ Auto Curriculum</div>
+                        <div class="feature-tag">🎯 Smart Pacing</div>
+                        <div class="feature-tag">🔊 Natural Voice</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <div class="content-area">
+            <!-- Upload Section -->
+            <section id="upload" class="content-section active">
+                <div class="section-header">
+                    <h1 class="section-title">Upload Textbook</h1>
+                    <p class="section-subtitle">Upload a PDF textbook to begin your autonomous learning journey</p>
+                </div>
+
+                <div class="upload-container">
+                    <div class="upload-zone" id="uploadZone">
+                        <input type="file" id="fileInput" accept=".pdf" hidden>
+                        <div class="upload-icon">
+                            <svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M32 8v32M20 28l12-12 12 12" />
+                                <path d="M8 40v12a4 4 0 004 4h40a4 4 0 004-4V40" />
+                            </svg>
+                        </div>
+                        <h3 class="upload-title">Drop your PDF here</h3>
+                        <p class="upload-subtitle">or click to browse</p>
+                        <button class="btn-browse" onclick="document.getElementById('fileInput').click()">
+                            Browse Files
+                        </button>
+                        <p class="upload-hint">Supports PDF files of any size</p>
+                    </div>
+
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <div class="file-preview">
+                            <div class="file-icon">
+                                <svg width="48" height="48" viewBox="0 0 48 48" fill="currentColor">
+                                    <path d="M14 4h20l10 10v26a4 4 0 01-4 4H14a4 4 0 01-4-4V8a4 4 0 014-4z" />
+                                    <path d="M34 4v10h10" stroke="white" stroke-width="2" />
+                                </svg>
+                            </div>
+                            <div class="file-details">
+                                <h4 class="file-name" id="fileName">Document.pdf</h4>
+                                <p class="file-size" id="fileSize">0 MB</p>
+                            </div>
+                            <button class="btn-remove" id="removeFile">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <path d="M6 6l8 8M14 6l-8 8" />
+                                </svg>
+                            </button>
+                        </div>
+                        <button class="btn-primary btn-process" id="processBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10 2a8 8 0 100 16 8 8 0 000-16zm-1 11V7h2v6h-2zm0-8v2h2V5h-2z" />
+                            </svg>
+                            Process Textbook
+                        </button>
+                    </div>
+
+                    <div class="processing-status" id="processingStatus" style="display: none;">
+                        <div class="processing-header">
+                            <div class="processing-icon">
+                                <div class="spinner"></div>
+                            </div>
+                            <h3 class="processing-title">Processing Textbook</h3>
+                            <p class="processing-subtitle">This may take a few moments...</p>
+                        </div>
+                        <div class="processing-steps" id="processingSteps">
+                            <!-- Steps will be added dynamically -->
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                        </div>
+                    </div>
+
+                    <div class="upload-success" id="uploadSuccess" style="display: none;">
+                        <div class="success-icon">
+                            <svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                                stroke-width="3">
+                                <circle cx="32" cy="32" r="28" />
+                                <path d="M20 32l8 8 16-16" />
+                            </svg>
+                        </div>
+                        <h3 class="success-title">PDF Processed Successfully!</h3>
+                        <p class="success-subtitle">Your textbook is ready for teaching</p>
+                        <div class="success-actions">
+                            <button class="btn-primary" onclick="navigateToSection('curriculum')">
+                                View Curriculum
+                            </button>
+                            <button class="btn-secondary" id="uploadAnotherBtn">
+                                Upload Another PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Curriculum Section -->
+            <section id="curriculum" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Curriculum Overview</h1>
+                    <p class="section-subtitle">Review the extracted teaching units from your textbook</p>
+                </div>
+
+                <div class="curriculum-container">
+                    <div class="empty-state" id="curriculumEmpty">
+                        <div class="empty-icon">
+                            <svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <rect x="10" y="10" width="60" height="60" rx="4" />
+                                <path d="M20 30h40M20 40h40M20 50h30" />
+                            </svg>
+                        </div>
+                        <h3 class="empty-title">No Curriculum Yet</h3>
+                        <p class="empty-subtitle">Upload and process a textbook to see the curriculum</p>
+                    </div>
+
+                    <div class="curriculum-list" id="curriculumList" style="display: none;">
+                        <!-- Curriculum items will be added dynamically -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Teaching Section -->
+            <section id="teach" class="content-section">
+                <div class="section-header">
+                    <h1 class="section-title">Autonomous Teaching</h1>
+                    <p class="section-subtitle">Watch the AI teach the entire curriculum automatically</p>
+                </div>
+
+                <div class="teaching-container">
+                    <div class="empty-state" id="teachingEmpty">
+                        <div class="empty-icon">
+                            <svg width="80" height="80" viewBox="0 0 80 80" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <circle cx="40" cy="40" r="30" />
+                                <path d="M32 30l20 10-20 10V30z" />
+                            </svg>
+                        </div>
+                        <h3 class="empty-title">Ready to Start Teaching</h3>
+                        <p class="empty-subtitle">Process a textbook and extract curriculum to begin</p>
+                        <button class="btn-primary" id="startTeachingBtn" disabled>
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M6 4l10 6-10 6V4z" />
+                            </svg>
+                            Start Autonomous Teaching
+                        </button>
+                    </div>
+
+                    <div class="teaching-active" id="teachingActive" style="display: none;">
+                        <div class="teaching-progress">
+                            <div class="progress-header">
+                                <h3 class="progress-title" id="currentLessonTitle">Lesson 1: Introduction</h3>
+                                <span class="progress-counter" id="lessonCounter">1 / 10</span>
+                            </div>
+                            <div class="progress-bar-large">
+                                <div class="progress-fill-large" id="teachingProgress"></div>
+                            </div>
+                        </div>
+
+                        <div class="lecture-display" id="lectureDisplay">
+                            <div class="lecture-content" id="lectureContent">
+                                <!-- Lecture text will be displayed here -->
+                            </div>
+                        </div>
+
+                        <div class="teaching-controls">
+                            <button class="btn-danger" id="stopBtn">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                    <rect x="5" y="5" width="10" height="10" />
+                                </svg>
+                                Stop Teaching
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Scripts -->
+    <script src="/senku-ui/app.js"></script>
+</body>
+
+</html>
