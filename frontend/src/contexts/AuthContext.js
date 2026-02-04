@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }) => {
         method: 'GET',
         credentials: 'include'
       });
-      
+
       if (response.ok || response.redirected) {
         // Try to get user info from session if available
         setIsAuthenticated(true);
@@ -77,8 +77,9 @@ export const AuthProvider = ({ children }) => {
       if (data.success) {
         setIsAuthenticated(true);
         const student_class = data.user?.student_class || null;
-        setUser({ username: username, student_class });
-        return { success: true, user: { username: username, student_class } };
+        const role = data.user?.role || 'student';
+        setUser({ username: username, student_class, role });
+        return { success: true, user: { username: username, student_class, role } };
       } else {
         return {
           success: false,
@@ -96,7 +97,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const { email, password, confirm_password, student_class } = userData;
-      
+
       // Validate password match
       if (password !== confirm_password) {
         return {
@@ -153,7 +154,7 @@ export const AuthProvider = ({ children }) => {
         method: 'POST',
         credentials: 'include'
       });
-      
+
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
@@ -163,13 +164,24 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Helper functions for role checking
+  const isTeacher = () => {
+    return user?.role === 'teacher';
+  };
+
+  const isStudent = () => {
+    return user?.role === 'student';
+  };
+
   const value = {
     user,
     isAuthenticated,
     loading,
     login,
     register,
-    logout
+    logout,
+    isTeacher,
+    isStudent
   };
 
   return (

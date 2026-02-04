@@ -36,6 +36,12 @@ const AddStudents = () => {
     }, [selectedClass, selectedSection]);
 
     useEffect(() => {
+        if (showCamera && videoRef.current && streamRef.current) {
+            videoRef.current.srcObject = streamRef.current;
+        }
+    }, [showCamera]);
+
+    useEffect(() => {
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(track => track.stop());
@@ -85,9 +91,8 @@ const AddStudents = () => {
                 video: { width: 640, height: 480 }
             });
             streamRef.current = stream;
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-            }
+            // Removed direct assignment here as videoRef.current might be null (not rendered yet)
+            // The useEffect above will handle assignment once showCamera becomes true
             setShowCamera(true);
         } catch (error) {
             console.error('Camera error:', error);
@@ -96,7 +101,11 @@ const AddStudents = () => {
     };
 
     const captureImage = () => {
-        if (!videoRef.current) return;
+        // Ensure video is ready before capturing
+        if (!videoRef.current || videoRef.current.readyState === 0) {
+            console.warn("Video not ready for capture");
+            return;
+        }
 
         const canvas = document.createElement('canvas');
         canvas.width = videoRef.current.videoWidth;
