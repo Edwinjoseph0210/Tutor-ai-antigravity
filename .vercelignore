@@ -1,0 +1,19 @@
+# Ignore backend files on Vercel
+# Vercel should only build the React frontend
+*.py
+requirements.txt
+Procfile
+senku_unpacked/
+faces/
+data/
+utils/
+vector_store/
+teaching/
+senku_ingestion/
+models/
+.env
+instance/
+__pycache__/
+*.db
+*.sqlite3
+Dockerfile
