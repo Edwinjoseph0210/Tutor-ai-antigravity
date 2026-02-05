@@ -3435,55 +3435,58 @@ def background_attendance_check():
             rgb_image = cv2.resize(rgb_image, (new_width, new_height))
         
         # Face recognition - use more lenient settings
-        face_locations = face_recognition.face_locations(rgb_image, model='hog', number_of_times_to_upsample=2)
-        face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=2)
-        
-        recognized_students = []
-        for face_encoding in face_encodings:
-            if known_face_encodings:
-                # Calculate distances to all known faces
-                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-                
-                if len(face_distances) > 0:
-                    # Find the best match (lowest distance)
-                    best_match_index = np.argmin(face_distances)
-                    best_distance = face_distances[best_match_index]
+        if face_recognition_available:
+            face_locations = face_recognition.face_locations(rgb_image, model='hog', number_of_times_to_upsample=2)
+            face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=2)
+            
+            recognized_students = []
+            for face_encoding in face_encodings:
+                if known_face_encodings:
+                    # Calculate distances to all known faces
+                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
                     
-                    # More lenient matching - accept if distance is less than 0.65
-                    if best_distance < 0.65:
-                        person_name = known_face_names[best_match_index]
+                    if len(face_distances) > 0:
+                        # Find the best match (lowest distance)
+                        best_match_index = np.argmin(face_distances)
+                        best_distance = face_distances[best_match_index]
                         
-                        # Check all encodings for this person to find the best match among their photos
-                        person_distances = []
-                        for idx, stored_name in enumerate(known_face_names):
-                            if stored_name == person_name:
-                                person_distances.append(face_distances[idx])
-                        
-                        # Use the best (lowest) distance among all this person's photos
-                        if person_distances:
-                            best_person_distance = min(person_distances)
-                            confidence = face_confidence(best_person_distance)
-                        else:
-                            confidence = face_confidence(best_distance)
-                        
-                        # Get student ID
-                        student = attendance._get_student_by_name(person_name)
-                        if student:
-                            student_id = student[0]
-                            # Record attendance
-                            lecture.record_lecture_attendance(
-                                session_id=session_id,
-                                student_id=student_id,
-                                checkpoint_number=checkpoint_number,
-                                status='Present',
-                                recognition_method='face_recognition'
-                            )
-                            recognized_students.append({
-                                'name': person_name,
-                                'student_id': student_id,
-                                'confidence': confidence,
-                                'distance': float(best_person_distance if person_distances else best_distance)
-                            })
+                        # More lenient matching - accept if distance is less than 0.65
+                        if best_distance < 0.65:
+                            person_name = known_face_names[best_match_index]
+                            
+                            # Check all encodings for this person to find the best match among their photos
+                            person_distances = []
+                            for idx, stored_name in enumerate(known_face_names):
+                                if stored_name == person_name:
+                                    person_distances.append(face_distances[idx])
+                            
+                            # Use the best (lowest) distance among all this person's photos
+                            if person_distances:
+                                best_person_distance = min(person_distances)
+                                confidence = face_confidence(best_person_distance)
+                            else:
+                                confidence = face_confidence(best_distance)
+                            
+                            # Get student ID
+                            student = attendance._get_student_by_name(person_name)
+                            if student:
+                                student_id = student[0]
+                                # Record attendance
+                                lecture.record_lecture_attendance(
+                                    session_id=session_id,
+                                    student_id=student_id,
+                                    checkpoint_number=checkpoint_number,
+                                    status='Present',
+                                    recognition_method='face_recognition'
+                                )
+                                recognized_students.append({
+                                    'name': person_name,
+                                    'student_id': student_id,
+                                    'confidence': confidence,
+                                    'distance': float(best_person_distance if person_distances else best_distance)
+                                })
+        else:
+            recognized_students = []
         
         return jsonify({
             'success': True,
