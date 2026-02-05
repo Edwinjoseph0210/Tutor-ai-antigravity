@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -10,8 +10,6 @@ const StudentDashboard = () => {
 
     // Single consolidated access to Socket Context
     const {
-        socket,
-        connected,
         joinClassRoom,
         liveLectures: socketLiveLectures,
         scheduledLectures: socketScheduledLectures
@@ -20,57 +18,12 @@ const StudentDashboard = () => {
     const [attendance, setAttendance] = useState(null);
     const [materials, setMaterials] = useState([]);
     const [performance, setPerformance] = useState(null);
-    const [lectures, setLectures] = useState({ upcoming: [], past: [] });
     const [liveLectures, setLiveLectures] = useState([]);
-    const [scheduledLectures, setScheduledLectures] = useState([]);
     const [loading, setLoading] = useState(true);
     const [notificationVisible, setNotificationVisible] = useState(false);
     const [newLectureNotification, setNewLectureNotification] = useState(null);
 
-    useEffect(() => {
-        fetchStudentData();
-        fetchLiveLectures();
-        fetchScheduledLectures();
-    }, []);
-
-    // REAL-TIME: Join Class Room when user is loaded
-    useEffect(() => {
-        if (user && user.student_class && joinClassRoom) {
-            // Join specific class room (defaulting section to A for now)
-            joinClassRoom(user.student_class, user.section_id || 'A');
-        }
-    }, [user, joinClassRoom]);
-
-    // REAL-TIME: Update live lectures from Socket.IO
-    useEffect(() => {
-        if (socketLiveLectures && socketLiveLectures.length > 0) {
-            const previousCount = liveLectures.length;
-            const newLectures = socketLiveLectures;
-
-            // Check if there's a new lecture (notification trigger)
-            if (newLectures.length > previousCount && previousCount > 0) {
-                const newLecture = newLectures[0]; // Most recent
-                setNewLectureNotification(newLecture);
-                setNotificationVisible(true);
-
-                // Auto-hide notification after 10 seconds
-                setTimeout(() => {
-                    setNotificationVisible(false);
-                }, 10000);
-            }
-
-            setLiveLectures(newLectures);
-        }
-    }, [socketLiveLectures, liveLectures.length]);
-
-    // REAL-TIME: Update scheduled lectures from Socket.IO
-    useEffect(() => {
-        if (socketScheduledLectures) {
-            setScheduledLectures(socketScheduledLectures);
-        }
-    }, [socketScheduledLectures]);
-
-    const fetchLiveLectures = async () => {
+    const fetchLiveLectures = useCallback(async () => {
         try {
             const response = await fetch('/api/student/live-lectures', {
                 credentials: 'include'
@@ -84,9 +37,9 @@ const StudentDashboard = () => {
         } catch (error) {
             console.error('Error fetching live lectures:', error);
         }
-    };
+    }, []);
 
-    const fetchScheduledLectures = async () => {
+    const fetchScheduledLectures = useCallback(async () => {
         try {
             const classId = user?.student_class;
             if (!classId) return;
@@ -97,15 +50,15 @@ const StudentDashboard = () => {
             if (response.ok) {
                 const data = await response.json();
                 if (data.success) {
-                    setScheduledLectures(data.data || []);
+                    // setScheduledLectures(data.data || []);
                 }
             }
         } catch (error) {
             console.error('Error fetching scheduled lectures:', error);
         }
-    };
+    }, [user?.student_class]);
 
-    const fetchStudentData = async () => {
+    const fetchStudentData = useCallback(async () => {
         setLoading(true);
         try {
             // Fetch attendance
@@ -148,7 +101,7 @@ const StudentDashboard = () => {
             if (lecturesRes.ok) {
                 const lecturesData = await lecturesRes.json();
                 if (lecturesData.success) {
-                    setLectures(lecturesData.data);
+                    // setLectures(lecturesData.data);
                 }
             }
         } catch (error) {
@@ -156,7 +109,52 @@ const StudentDashboard = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchStudentData();
+        fetchLiveLectures();
+        fetchScheduledLectures();
+    }, [fetchStudentData, fetchLiveLectures, fetchScheduledLectures]);
+
+    // REAL-TIME: Join Class Room when user is loaded
+    useEffect(() => {
+        if (user && user.student_class && joinClassRoom) {
+            // Join specific class room (defaulting section to A for now)
+            joinClassRoom(user.student_class, user.section_id || 'A');
+        }
+    }, [user, joinClassRoom]);
+
+    // REAL-TIME: Update live lectures from Socket.IO
+    useEffect(() => {
+        if (socketLiveLectures && socketLiveLectures.length > 0) {
+            const previousCount = liveLectures.length;
+            const newLectures = socketLiveLectures;
+
+            // Check if there's a new lecture (notification trigger)
+            if (newLectures.length > previousCount && previousCount > 0) {
+                const newLecture = newLectures[0]; // Most recent
+                setNewLectureNotification(newLecture);
+                setNotificationVisible(true);
+
+                // Auto-hide notification after 10 seconds
+                setTimeout(() => {
+                    setNotificationVisible(false);
+                }, 10000);
+            }
+
+            setLiveLectures(newLectures);
+        }
+    }, [socketLiveLectures, liveLectures.length]);
+
+    // REAL-TIME: Update scheduled lectures from Socket.IO
+    useEffect(() => {
+        if (socketScheduledLectures) {
+            // setScheduledLectures(socketScheduledLectures);
+        }
+    }, [socketScheduledLectures]);
+
+
 
     const handleLogout = async () => {
         try {

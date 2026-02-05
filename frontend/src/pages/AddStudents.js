@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const AddStudents = () => {
     const [classes, setClasses] = useState([]);
@@ -15,10 +15,46 @@ const AddStudents = () => {
     const videoRef = useRef(null);
     const streamRef = useRef(null);
 
+    const fetchClasses = useCallback(async () => {
+        try {
+            const response = await fetch('/api/classes');
+            const data = await response.json();
+            if (data.success) {
+                setClasses(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching classes:', error);
+        }
+    }, []);
+
+    const fetchSections = useCallback(async (classId) => {
+        try {
+            const response = await fetch(`/api/sections?class_id=${classId}`);
+            const data = await response.json();
+            if (data.success) {
+                setSections(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching sections:', error);
+        }
+    }, []);
+
+    const fetchStudents = useCallback(async () => {
+        try {
+            const response = await fetch(`/api/students?class_id=${selectedClass}&section_id=${selectedSection}`);
+            const data = await response.json();
+            if (data.success) {
+                setStudents(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching students:', error);
+        }
+    }, [selectedClass, selectedSection]);
+
     // Fetch classes on mount
     useEffect(() => {
         fetchClasses();
-    }, []);
+    }, [fetchClasses]);
 
     // Fetch sections when class changes
     useEffect(() => {
@@ -26,14 +62,14 @@ const AddStudents = () => {
             fetchSections(selectedClass);
             setSelectedSection(''); // Reset section when class changes
         }
-    }, [selectedClass]);
+    }, [selectedClass, fetchSections]);
 
     // Fetch students when class and section are selected
     useEffect(() => {
         if (selectedClass && selectedSection) {
             fetchStudents();
         }
-    }, [selectedClass, selectedSection]);
+    }, [selectedClass, selectedSection, fetchStudents]);
 
     useEffect(() => {
         if (showCamera && videoRef.current && streamRef.current) {
@@ -48,42 +84,6 @@ const AddStudents = () => {
             }
         };
     }, []);
-
-    const fetchClasses = async () => {
-        try {
-            const response = await fetch('/api/classes');
-            const data = await response.json();
-            if (data.success) {
-                setClasses(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching classes:', error);
-        }
-    };
-
-    const fetchSections = async (classId) => {
-        try {
-            const response = await fetch(`/api/sections?class_id=${classId}`);
-            const data = await response.json();
-            if (data.success) {
-                setSections(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching sections:', error);
-        }
-    };
-
-    const fetchStudents = async () => {
-        try {
-            const response = await fetch(`/api/students?class_id=${selectedClass}&section_id=${selectedSection}`);
-            const data = await response.json();
-            if (data.success) {
-                setStudents(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching students:', error);
-        }
-    };
 
     const startCamera = async () => {
         try {

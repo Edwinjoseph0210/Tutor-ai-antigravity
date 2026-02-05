@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const StudyMaterials = () => {
   const [classes, setClasses] = useState([]);
@@ -10,18 +10,7 @@ const StudyMaterials = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [materials, setMaterials] = useState([]);
 
-  useEffect(() => {
-    fetchClasses();
-    fetchSubjects();
-  }, []);
-
-  useEffect(() => {
-    if (selectedClass && selectedSubject) {
-      fetchMaterials();
-    }
-  }, [selectedClass, selectedSubject]);
-
-  const fetchClasses = async () => {
+  const fetchClasses = useCallback(async () => {
     try {
       const response = await fetch('/api/classes');
       const data = await response.json();
@@ -31,9 +20,9 @@ const StudyMaterials = () => {
     } catch (error) {
       console.error('Error fetching classes:', error);
     }
-  };
+  }, []);
 
-  const fetchSubjects = async () => {
+  const fetchSubjects = useCallback(async () => {
     try {
       const response = await fetch('/api/subjects');
       const data = await response.json();
@@ -43,9 +32,9 @@ const StudyMaterials = () => {
     } catch (error) {
       console.error('Error fetching subjects:', error);
     }
-  };
+  }, []);
 
-  const fetchMaterials = async () => {
+  const fetchMaterials = useCallback(async () => {
     try {
       const response = await fetch(`/api/materials?class=${selectedClass}&subject=${selectedSubject}`);
       const data = await response.json();
@@ -55,7 +44,18 @@ const StudyMaterials = () => {
     } catch (error) {
       console.error('Error fetching materials:', error);
     }
-  };
+  }, [selectedClass, selectedSubject]);
+
+  useEffect(() => {
+    fetchClasses();
+    fetchSubjects();
+  }, [fetchClasses, fetchSubjects]);
+
+  useEffect(() => {
+    if (selectedClass && selectedSubject) {
+      fetchMaterials();
+    }
+  }, [selectedClass, selectedSubject, fetchMaterials]);
 
   const handleFileSelect = (e) => {
     setSelectedFiles(Array.from(e.target.files));

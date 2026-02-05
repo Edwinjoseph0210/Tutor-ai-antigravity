@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const AttendanceMarking = () => {
     // Tabs state
@@ -16,7 +16,6 @@ const AttendanceMarking = () => {
     // Camera & Marking State
     const [cameraActive, setCameraActive] = useState(false);
     const [streamReady, setStreamReady] = useState(false);
-    const [recognizedStudents, setRecognizedStudents] = useState([]);
     const [attendanceMarked, setAttendanceMarked] = useState(false);
     const [countdown, setCountdown] = useState(8);
     const [statusMessage, setStatusMessage] = useState('');
@@ -27,7 +26,6 @@ const AttendanceMarking = () => {
 
     // Logs State
     const [logs, setLogs] = useState([]);
-    const [loadingLogs, setLoadingLogs] = useState(false);
 
     const videoRef = useRef(null);
     const streamRef = useRef(null);
@@ -36,21 +34,29 @@ const AttendanceMarking = () => {
     const cameraStartTimeRef = useRef(null);
     const recognizedStudentsRef = useRef([]); // Ref to track students avoiding stale closures
 
-    const periods = ['1', '2', '3', '4', '5', '6', '7', '8'];
-
-    useEffect(() => {
-        fetchClasses();
-        return () => {
-            stopCamera();
-        };
+    const fetchClasses = useCallback(async () => {
+        try {
+            const response = await fetch('/api/classes');
+            const data = await response.json();
+            if (data.success) {
+                setClasses(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching classes:', error);
+        }
     }, []);
 
-    useEffect(() => {
-        if (selectedClass) {
-            fetchSections(selectedClass);
-            setSelectedSection('');
+    const fetchSections = useCallback(async (classId) => {
+        try {
+            const response = await fetch(`/api/sections?class_id=${classId}`);
+            const data = await response.json();
+            if (data.success) {
+                setSections(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching sections:', error);
         }
-    }, [selectedClass]);
+    }, []);
 
     // Fix for camera stream assignment: 
     // Wait for cameraActive (video mounted) and streamReady (stream acquired)
@@ -62,36 +68,47 @@ const AttendanceMarking = () => {
         }
     }, [cameraActive, streamReady]);
 
+    // Logs Functions
+    const fetchLogs = useCallback(async () => {
+        try {
+            let url = `/api/attendance?date=${selectedDate}`;
+            if (selectedClass) url += `&class_id=${selectedClass}`;
+            if (selectedSection) url += `&section_id=${selectedSection}`;
+
+            const response = await fetch(url);
+            const data = await response.json();
+            if (data.success) {
+                setLogs(data.data || []);
+            }
+        } catch (error) {
+            console.error('Error fetching logs:', error);
+        } finally {
+            // setLoadingLogs(false);
+        }
+    }, [selectedDate, selectedClass, selectedSection]);
+
     // Auto-fetch logs when tab changes
     useEffect(() => {
         if (activeTab === 'logs') {
             fetchLogs();
         }
-    }, [activeTab]);
+    }, [activeTab, fetchLogs]);
 
-    const fetchClasses = async () => {
-        try {
-            const response = await fetch('/api/classes');
-            const data = await response.json();
-            if (data.success) {
-                setClasses(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching classes:', error);
-        }
-    };
+    useEffect(() => {
+        fetchClasses();
+        return () => {
+            stopCamera();
+        };
+    }, [fetchClasses]);
 
-    const fetchSections = async (classId) => {
-        try {
-            const response = await fetch(`/api/sections?class_id=${classId}`);
-            const data = await response.json();
-            if (data.success) {
-                setSections(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching sections:', error);
+    useEffect(() => {
+        if (selectedClass) {
+            fetchSections(selectedClass);
+            setSelectedSection('');
         }
-    };
+    }, [selectedClass, fetchSections]);
+
+
 
     // Camera Functions
     const startCamera = async () => {
@@ -106,7 +123,6 @@ const AttendanceMarking = () => {
             // The useEffect above will handle it once the <video> element is rendered.
 
             setCameraActive(true);
-            setRecognizedStudents([]);
             recognizedStudentsRef.current = []; // Reset ref
             setAttendanceMarked(false);
             setStatusMessage('Camera started - detecting faces...');
@@ -185,9 +201,8 @@ const AttendanceMarking = () => {
                         time: new Date().toLocaleTimeString()
                     }));
 
-                    // Update Ref and State
+                    // Update Ref
                     recognizedStudentsRef.current = [...recognizedStudentsRef.current, ...mappedStudents];
-                    setRecognizedStudents(prev => [...prev, ...mappedStudents]);
                 }
             }
         } catch (error) {
@@ -254,25 +269,7 @@ const AttendanceMarking = () => {
         }
     };
 
-    // Logs Functions
-    const fetchLogs = async () => {
-        setLoadingLogs(true);
-        try {
-            let url = `/api/attendance?date=${selectedDate}`;
-            if (selectedClass) url += `&class_id=${selectedClass}`;
-            if (selectedSection) url += `&section_id=${selectedSection}`;
 
-            const response = await fetch(url);
-            const data = await response.json();
-            if (data.success) {
-                setLogs(data.data || []);
-            }
-        } catch (error) {
-            console.error('Error fetching logs:', error);
-        } finally {
-            setLoadingLogs(false);
-        }
-    };
 
     const canStartCamera = selectedClass && selectedSection && selectedDate && !attendanceMarked;
 

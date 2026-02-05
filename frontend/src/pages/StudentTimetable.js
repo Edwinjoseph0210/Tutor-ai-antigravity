@@ -1,19 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+
 
 const StudentTimetable = () => {
     const navigate = useNavigate();
-    const { user, logout } = useAuth();
+
     const [schedule, setSchedule] = useState({});
     const [loading, setLoading] = useState(true);
-    const [currentDay, setCurrentDay] = useState(new Date().getDay());
+    const [currentDay] = useState(new Date().getDay());
 
-    useEffect(() => {
-        fetchTimetable();
-    }, []);
-
-    const fetchTimetable = async () => {
+    const fetchTimetable = useCallback(async () => {
         try {
             const response = await fetch('/api/student/timetable', {
                 credentials: 'include'
@@ -29,7 +25,11 @@ const StudentTimetable = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchTimetable();
+    }, [fetchTimetable]);
 
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

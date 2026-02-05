@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 
 const AuthContext = createContext();
 
@@ -27,14 +27,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check auth status on mount
-  useEffect(() => {
-    checkAuthStatus();
-  }, []);
-
   const API_BASE = getAPIBaseURL();
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/dashboard`, {
         method: 'GET',
@@ -52,7 +47,12 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_BASE]);
+
+  // Check auth status on mount
+  useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
 
   const login = async (credentials) => {
     try {

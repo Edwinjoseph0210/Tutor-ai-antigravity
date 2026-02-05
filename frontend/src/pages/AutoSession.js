@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const AutoSession = () => {
@@ -24,7 +24,7 @@ const AutoSession = () => {
     const recognitionIntervalRef = useRef(null);
     const countdownIntervalRef = useRef(null);
     const recognizedStudentsRef = useRef([]);
-    
+
     // Emotion tracking state for monitoring
     const [monitoringCameraActive, setMonitoringCameraActive] = useState(false);
     const [currentEmotion, setCurrentEmotion] = useState(null);
@@ -35,28 +35,7 @@ const AutoSession = () => {
     const monitoringStreamRef = useRef(null);
     const emotionTrackingIntervalRef = useRef(null);
 
-    useEffect(() => {
-        fetchClasses();
-        fetchSubjects();
-        return () => {
-            stopCamera();
-            stopMonitoringCamera();
-        };
-    }, []);
-
-    useEffect(() => {
-        if (selectedClass) {
-            fetchSections(selectedClass);
-        }
-    }, [selectedClass]);
-
-    useEffect(() => {
-        if (selectedClass && selectedSubject) {
-            fetchTopics();
-        }
-    }, [selectedClass, selectedSubject]);
-
-    const fetchClasses = async () => {
+    const fetchClasses = useCallback(async () => {
         try {
             const response = await fetch('/api/classes');
             const data = await response.json();
@@ -66,9 +45,9 @@ const AutoSession = () => {
         } catch (error) {
             console.error('Error fetching classes:', error);
         }
-    };
+    }, []);
 
-    const fetchSections = async (classId) => {
+    const fetchSections = useCallback(async (classId) => {
         try {
             const response = await fetch(`/api/sections?class_id=${classId}`);
             const data = await response.json();
@@ -78,9 +57,9 @@ const AutoSession = () => {
         } catch (error) {
             console.error('Error fetching sections:', error);
         }
-    };
+    }, []);
 
-    const fetchSubjects = async () => {
+    const fetchSubjects = useCallback(async () => {
         try {
             const response = await fetch('/api/subjects');
             const data = await response.json();
@@ -90,9 +69,9 @@ const AutoSession = () => {
         } catch (error) {
             console.error('Error fetching subjects:', error);
         }
-    };
+    }, []);
 
-    const fetchTopics = async () => {
+    const fetchTopics = useCallback(async () => {
         try {
             const response = await fetch(`/api/lecture/topics?class_id=${selectedClass}&subject=${selectedSubject}`);
             const data = await response.json();
@@ -102,7 +81,28 @@ const AutoSession = () => {
         } catch (error) {
             console.error('Error fetching topics:', error);
         }
-    };
+    }, [selectedClass, selectedSubject]);
+
+    useEffect(() => {
+        fetchClasses();
+        fetchSubjects();
+        return () => {
+            stopCamera();
+            stopMonitoringCamera();
+        };
+    }, [fetchClasses, fetchSubjects]);
+
+    useEffect(() => {
+        if (selectedClass) {
+            fetchSections(selectedClass);
+        }
+    }, [selectedClass, fetchSections]);
+
+    useEffect(() => {
+        if (selectedClass && selectedSubject) {
+            fetchTopics();
+        }
+    }, [selectedClass, selectedSubject, fetchTopics]);
 
     const startCamera = async () => {
         try {
@@ -345,7 +345,7 @@ const AutoSession = () => {
         // Start lecture monitoring
         try {
             // Initialize backend session tracking
-            await fetch('/api/start-lecture', { 
+            await fetch('/api/start-lecture', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -365,7 +365,7 @@ const AutoSession = () => {
             });
 
             const data = await response.json();
-            
+
             // Store lecture content for display
             if (data.success && data.lecture) {
                 setLectureContent({
@@ -839,7 +839,7 @@ const AutoSession = () => {
                                             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                         />
                                         <canvas ref={monitoringCanvasRef} width="320" height="240" style={{ display: 'none' }} />
-                                        
+
                                         {/* Status Overlay */}
                                         <div style={{
                                             position: 'absolute',
@@ -906,7 +906,7 @@ const AutoSession = () => {
                             </div>
 
                             <p style={{ color: '#48bb78', fontSize: '0.85rem', textAlign: 'center' }}>
-                                {monitoringCameraActive 
+                                {monitoringCameraActive
                                     ? '✓ Attention tracking is active'
                                     : '⏳ Initializing camera...'}
                             </p>

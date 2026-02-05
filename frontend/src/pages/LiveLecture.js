@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './LiveLecture.css'; // Import the new CSS
 
 const LiveLecture = () => {
@@ -14,32 +14,13 @@ const LiveLecture = () => {
     // Emotion Recognition State
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const [showSelfView, setShowSelfView] = useState(true);
     const [currentEmotion, setCurrentEmotion] = useState(null);
     const [isAttentive, setIsAttentive] = useState(true);
     const [sessionLogs, setSessionLogs] = useState([]);
     const [showReport, setShowReport] = useState(false);
     const [stream, setStream] = useState(null);
 
-    useEffect(() => {
-        fetchClasses();
-        fetchSubjects();
-    }, []);
-
-    // Ensure video stream is attached when element mounts
-    useEffect(() => {
-        if (videoRef.current && stream) {
-            videoRef.current.srcObject = stream;
-        }
-    }, [stream]);
-
-    useEffect(() => {
-        if (selectedClass && selectedSubject) {
-            fetchTopics();
-        }
-    }, [selectedClass, selectedSubject]);
-
-    const fetchClasses = async () => {
+    const fetchClasses = useCallback(async () => {
         try {
             const response = await fetch('/api/classes');
             const data = await response.json();
@@ -49,9 +30,9 @@ const LiveLecture = () => {
         } catch (error) {
             console.error('Error fetching classes:', error);
         }
-    };
+    }, []);
 
-    const fetchSubjects = async () => {
+    const fetchSubjects = useCallback(async () => {
         try {
             const response = await fetch('/api/subjects');
             const data = await response.json();
@@ -61,9 +42,21 @@ const LiveLecture = () => {
         } catch (error) {
             console.error('Error fetching subjects:', error);
         }
-    };
+    }, []);
 
-    const fetchTopics = async () => {
+    useEffect(() => {
+        fetchClasses();
+        fetchSubjects();
+    }, [fetchClasses, fetchSubjects]);
+
+    // Ensure video stream is attached when element mounts
+    useEffect(() => {
+        if (videoRef.current && stream) {
+            videoRef.current.srcObject = stream;
+        }
+    }, [stream]);
+
+    const fetchTopics = useCallback(async () => {
         try {
             const response = await fetch(`/api/lecture/topics?class_id=${selectedClass}&subject=${selectedSubject}`);
             const data = await response.json();
@@ -73,7 +66,13 @@ const LiveLecture = () => {
         } catch (error) {
             console.error('Error fetching topics:', error);
         }
-    };
+    }, [selectedClass, selectedSubject]);
+
+    useEffect(() => {
+        if (selectedClass && selectedSubject) {
+            fetchTopics();
+        }
+    }, [selectedClass, selectedSubject, fetchTopics]);
 
     const startLecture = async (topic) => {
         setIsGenerating(true);
@@ -252,13 +251,11 @@ const LiveLecture = () => {
         // If single user ("You" or actual name), show big score. If multiple, show list.
 
         let primaryScore = 0;
-        let mainStudentName = "Student";
 
         if (summaryAvailable) {
             // Find the main student (assuming single user usage mostly)
             const mainStat = lectureSummary[0]; // Just take first for now or find "You"
             primaryScore = mainStat.attentive_percentage;
-            mainStudentName = mainStat.name;
         } else {
             // Fallback to local logs
             const totalSamples = sessionLogs.length;
@@ -372,7 +369,7 @@ const LiveLecture = () => {
     const [speechBlocks, setSpeechBlocks] = useState([]);
     const [currentBlockIndex, setCurrentBlockIndex] = useState(-1);
     const [isSpeaking, setIsSpeaking] = useState(false);
-    const [speechRate, setSpeechRate] = useState(1);
+    const speechRate = 1;
     const [isGenerating, setIsGenerating] = useState(false); // New state key
 
     // Stop speech when component unmounts
@@ -402,19 +399,8 @@ const LiveLecture = () => {
         }
     }, [currentTopic, isGenerating]);
 
-    // AUTO-PLAY: Trigger speech when blocks are ready and lecture is active
-    useEffect(() => {
-        if (lectureActive && !isGenerating && speechBlocks.length > 0 && !isSpeaking && currentBlockIndex === -1) {
-            // Small timeout to allow UI to settle
-            const timer = setTimeout(() => {
-                speakBlock(0);
-            }, 1000); // Increased timeout slightly for smoother start
-            return () => clearTimeout(timer);
-        }
-    }, [speechBlocks, lectureActive, isGenerating]);
-
     // Speech functionality
-    const speakBlock = (index) => {
+    const speakBlock = useCallback((index) => {
         if (index >= speechBlocks.length) {
             setIsSpeaking(false);
             setCurrentBlockIndex(-1);
@@ -443,7 +429,18 @@ const LiveLecture = () => {
         };
 
         window.speechSynthesis.speak(utterance);
-    };
+    }, [speechBlocks, speechRate]);
+
+    // AUTO-PLAY: Trigger speech when blocks are ready and lecture is active
+    useEffect(() => {
+        if (lectureActive && !isGenerating && speechBlocks.length > 0 && !isSpeaking && currentBlockIndex === -1) {
+            // Small timeout to allow UI to settle
+            const timer = setTimeout(() => {
+                speakBlock(0);
+            }, 1000); // Increased timeout slightly for smoother start
+            return () => clearTimeout(timer);
+        }
+    }, [speechBlocks, lectureActive, isGenerating, isSpeaking, currentBlockIndex, speakBlock]);
 
     const toggleSpeech = () => {
         if (isSpeaking) {

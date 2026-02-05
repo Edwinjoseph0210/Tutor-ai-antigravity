@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+
 
 const TeacherTimetable = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
     const [schedule, setSchedule] = useState({});
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -18,11 +17,7 @@ const TeacherTimetable = () => {
         room_number: ''
     });
 
-    useEffect(() => {
-        fetchTimetable();
-    }, []);
-
-    const fetchTimetable = async () => {
+    const fetchTimetable = useCallback(async () => {
         try {
             const response = await fetch('/api/teacher/timetable', {
                 credentials: 'include'
@@ -38,7 +33,11 @@ const TeacherTimetable = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchTimetable();
+    }, [fetchTimetable]);
 
     const handleAddEntry = async () => {
         try {
