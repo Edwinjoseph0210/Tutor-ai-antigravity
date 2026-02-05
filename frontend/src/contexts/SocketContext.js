@@ -13,7 +13,7 @@ const getBackendUrl = () => {
     }
 
     // Production URL (fallback)
-    return 'https://tutor-ai-backend.onrender.com';
+    return 'https://tutor-ai-backend-10hu.onrender.com';
 };
 
 const SocketContext = createContext(null);
