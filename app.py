@@ -30,7 +30,15 @@ import io
 from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
-import pyttsx3
+try:
+    import pyttsx3
+    tts_available = True
+except ImportError:
+    print("⚠ pyttsx3 not available (text-to-speech disabled)")
+    tts_available = False
+except OSError:
+    print("⚠ pyttsx3 initialization failed (missing espeak?)")
+    tts_available = False
 import hashlib
 import pathlib
 import senku_bridge
@@ -1654,6 +1662,9 @@ def fetch_text_from_urls(urls, max_chars=20000):
 def generate_tts_for_content(content_json, out_filename):
     """Generate a TTS audio file (wav) from lecture content and return file path."""
     try:
+        if not tts_available:
+            print("TTS disabled globally.")
+            return None
         parts = []
         title = content_json.get('title') or f"{content_json.get('subject')} - {content_json.get('chapter')}"
         parts.append(title)
