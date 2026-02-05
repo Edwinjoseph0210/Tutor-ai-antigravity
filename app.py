@@ -102,7 +102,9 @@ CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000', 
     'http://127.0.0.1:3000',
     'https://ai-tutor-94ff4.web.app',
-    'https://aitutor-team.web.app'
+    'https://aitutor-team.web.app',
+    # Add your Vercel URL here after deployment:
+    # 'https://your-app-name.vercel.app'
 ])
 
 # Initialize Socket.IO for real-time communication
@@ -112,7 +114,9 @@ socketio = SocketIO(
         'http://localhost:3000',
         'http://127.0.0.1:3000',
         'https://ai-tutor-94ff4.web.app',
-        'https://aitutor-team.web.app'
+        'https://aitutor-team.web.app',
+        # Add your Vercel URL here after deployment:
+        # 'https://your-app-name.vercel.app'
     ],
     async_mode='threading',  # Changed from 'eventlet' to avoid conflict with 'trio'
     logger=True,
