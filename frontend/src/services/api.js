@@ -13,9 +13,8 @@ const getAPIBaseURL = () => {
   }
 
   // Production: Use backend deployed on Render/Heroku/etc
-  // Update this to your actual backend URL
-  if (window.location.hostname === 'aitutor-team.web.app') {
-    return 'https://tutor-ai-backend.onrender.com/api'; // Update with your backend URL
+  if (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('web.app')) {
+    return 'https://tutor-ai-backend-10hu.onrender.com/api';
   }
 
   // Fallback: try to use relative /api path
@@ -107,22 +106,22 @@ export const lectureAPI = {
   endLecture: (sessionId) => api.post('/lectures/end', { session_id: sessionId }),
   getCurrentLecture: () => api.get('/lectures/current'),
   updateProgress: (data) => api.post('/lectures/progress', data),
-  
+
   // Content
   generateContent: (data) => api.post('/lectures/content/generate', data),
   getContent: (subject, chapter) => api.get(`/lectures/content/${subject}/${chapter}`),
-  
+
   // Study Plan & Syllabus
   generateSyllabus: (data) => api.post('/lectures/syllabus/generate', data),
   generateStudyPlan: (data) => api.post('/lectures/study-plan/generate', data),
   getStudyPlan: (subject, chapter) => api.get(`/lectures/study-plan/${subject}/${chapter}`),
-  
+
   // Attendance
   recordCheckpoint: (data) => api.post('/lectures/attendance/checkpoint', data),
   backgroundAttendance: (data) => api.post('/lectures/attendance/background', data),
   getAttendance: (sessionId) => api.get(`/lectures/attendance/${sessionId}`),
   overrideAttendance: (data) => api.post('/lectures/attendance/override', data),
-  
+
   // MCQ Tests
   generateMCQ: (data) => api.post('/lectures/mcq/generate', data),
   getMCQ: (testId) => api.get(`/lectures/mcq/${testId}`),
