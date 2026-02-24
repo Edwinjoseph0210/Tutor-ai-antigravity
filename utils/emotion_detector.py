@@ -6,6 +6,8 @@ import base64
 from datetime import datetime
 import math
 
+import threading
+
 # Try importing face_recognition
 try:
     import face_recognition
@@ -17,30 +19,34 @@ except ImportError:
 # Global model variables
 model = None
 face_cascade = None
+MODEL_AVAILABLE = False  # Set to True only if model loads successfully
 emotion_dict = ["Angry", "Disgust", "Fear", "Happy", "Neutral", "Sad", "Surprise"]
 
 # Face Recognition Globals
 known_face_encodings = []
 known_face_names = []
 faces_loaded = False
+loading_lock = threading.Lock()
 
 # Attentiveness mapping
 # Attentive emotions: Neutral, Happy, Surprise
 ATTENTIVE_EMOTIONS = ["Neutral", "Happy", "Surprise"]
 
 # Drowsiness Thresholds
-EAR_THRESHOLD = 0.25  # Eye Aspect Ratio threshold (below this = closed) - STRICTER
+EAR_THRESHOLD = 0.18  # Even more relaxed (blink/sleep)
 
 # Gaze Thresholds (degrees)
-# Yaw: Left/Right. > 15 or < -15 is distracted (looking sideways) - STRICTER
-# Pitch: Up/Down. < -15 is looking UP (distracted), > 25 is looking DOWN (attentive at notebook)
-YAW_THRESHOLD = 15  # Reduced from 25 to 15 for stricter sideways detection
-PITCH_THRESHOLD_UP = -15 
+# Yaw: Left/Right. > 30 or < -30 is distracted (looking sideways) - RELAXED from 25
+# Pitch: Up/Down. < -20 is looking UP (distracted), > 60 is looking DOWN (attentive at notebook)
+YAW_THRESHOLD = 30  
+PITCH_THRESHOLD_UP = -20 
 # PITCH_THRESHOLD_DOWN = 30 # Not used for distraction, as looking down is allowed
 
 def init_emotion_model():
-    """Initialize the emotion recognition model and face cascade"""
-    global model, face_cascade, faces_loaded
+    """Initialize the emotion recognition model and face cascade.
+    If the model fails to load, gaze/drowsiness/face-ID still work (emotion defaults to Neutral).
+    """
+    global model, face_cascade, faces_loaded, MODEL_AVAILABLE
     
     # Load faces if not loaded - CRITICAL for student recognition
     if not faces_loaded:
@@ -51,94 +57,108 @@ def init_emotion_model():
     
     if model is not None:
         return True
+    
+    # Try loading the Haar cascade (needed for emotion crop, optional otherwise)
+    cascade_path = "haarcascade_frontalface_default.xml"
+    if os.path.exists(cascade_path):
+        face_cascade = cv2.CascadeClassifier(cascade_path)
         
     try:
         from tensorflow.keras.models import load_model
         
-        # Paths are relative to the root application directory where app.py runs
         model_path = "custom_model_result.h5"
-        cascade_path = "haarcascade_frontalface_default.xml"
         
         if not os.path.exists(model_path):
-            print(f"Error: Model file not found at {model_path}")
-            return False
-            
-        if not os.path.exists(cascade_path):
-            print(f"Error: Cascade file not found at {cascade_path}")
+            print(f"⚠ Emotion model not found at {model_path} — running in gaze-only mode")
+            MODEL_AVAILABLE = False
             return False
             
         print("Loading emotion recognition model...")
         model = load_model(model_path)
-        face_cascade = cv2.CascadeClassifier(cascade_path)
-        print("Emotion recognition model loaded successfully")
+        MODEL_AVAILABLE = True
+        print("✓ Emotion recognition model loaded successfully")
         return True
     except Exception as e:
-        print(f"Error loading emotion model: {e}")
+        print(f"⚠ Emotion model unavailable ({e}) — running in gaze-only mode")
+        MODEL_AVAILABLE = False
         return False
 
 def load_known_faces(dataset_path="faces"):
     """Loads images from the dataset path and encodes faces."""
-    global known_face_encodings, known_face_names, faces_loaded
+    global known_face_encodings, known_face_names, faces_loaded, loading_lock
     
     if not FACE_RECOGNITION_AVAILABLE:
         print("⚠ Face recognition not available - cannot load faces")
         return
 
-    # Get absolute path relative to the script location
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Go up one level from utils/ to get project root, then join with faces/
-    project_root = os.path.dirname(script_dir)
-    full_dataset_path = os.path.join(project_root, dataset_path)
-    
-    if not os.path.exists(full_dataset_path):
-        print(f"⚠ Dataset path '{full_dataset_path}' does not exist.")
+    # Prevent concurrent loading
+    if faces_loaded:
         return
 
-    print(f"📸 Loading known faces from {full_dataset_path}...")
-    
-    # Reset existing encodings
-    known_face_encodings = []
-    known_face_names = []
-    
-    image_paths = []
-    for root, dirs, files in os.walk(full_dataset_path):
-        for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                image_paths.append(os.path.join(root, file))
-    
-    count = 0
-    for image_path in image_paths:
-        parent_dir = os.path.basename(os.path.dirname(image_path))
-        if os.path.abspath(os.path.dirname(image_path)) == os.path.abspath(full_dataset_path):
-            filename = os.path.split(image_path)[-1]
-            basename = os.path.splitext(filename)[0]
-            name = basename.split('_')[0]
-            name = ''.join([i for i in name if not i.isdigit()])
-        else:
-            name = parent_dir
-        
-        try:
-            face_image = face_recognition.load_image_file(image_path)
-            # Use num_jitters=2 for better encoding quality
-            encodings = face_recognition.face_encodings(face_image, num_jitters=2)
-            
-            if len(encodings) > 0:
-                known_face_encodings.append(encodings[0])
-                known_face_names.append(name)
-                count += 1
-                print(f"   ✓ Loaded: {name} from {os.path.basename(image_path)}")
-            else:
-                print(f"   ✗ No face found in {os.path.basename(image_path)}")
-        except Exception as e:
-            print(f"   ✗ Error processing {image_path}: {e}")
+    if not loading_lock.acquire(blocking=False):
+        print("⚠ Face loading already in progress... skipping request")
+        return
 
-    print(f"✓ Faces loaded. {count} faces encoded from {len(set(known_face_names))} unique students.")
-    if count > 0:
-        print(f"   Students: {', '.join(sorted(set(known_face_names)))}")
-    else:
-        print("   ⚠ WARNING: No faces loaded! Student recognition will not work.")
-        print("   Make sure you have student photos in the 'faces/' directory")
-    faces_loaded = True
+    try:
+        # Get absolute path relative to the script location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level from utils/ to get project root, then join with faces/
+        project_root = os.path.dirname(script_dir)
+        full_dataset_path = os.path.join(project_root, dataset_path)
+        
+        if not os.path.exists(full_dataset_path):
+            print(f"⚠ Dataset path '{full_dataset_path}' does not exist.")
+            return
+
+        print(f"📸 Loading known faces from {full_dataset_path}...")
+        
+        # Reset existing encodings
+        known_face_encodings = []
+        known_face_names = []
+        
+        image_paths = []
+        for root, dirs, files in os.walk(full_dataset_path):
+            for file in files:
+                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    image_paths.append(os.path.join(root, file))
+        
+        count = 0
+        for image_path in image_paths:
+            parent_dir = os.path.basename(os.path.dirname(image_path))
+            if os.path.abspath(os.path.dirname(image_path)) == os.path.abspath(full_dataset_path):
+                filename = os.path.split(image_path)[-1]
+                basename = os.path.splitext(filename)[0]
+                name = basename.split('_')[0]
+                name = ''.join([i for i in name if not i.isdigit()])
+            else:
+                name = parent_dir
+            
+            try:
+                face_image = face_recognition.load_image_file(image_path)
+                # Use num_jitters=2 for better encoding quality
+                encodings = face_recognition.face_encodings(face_image, num_jitters=2)
+                
+                if len(encodings) > 0:
+                    known_face_encodings.append(encodings[0])
+                    known_face_names.append(name)
+                    count += 1
+                    print(f"   ✓ Loaded: {name} from {os.path.basename(image_path)}")
+                else:
+                    print(f"   ✗ No face found in {os.path.basename(image_path)}")
+            except Exception as e:
+                print(f"   ✗ Error processing {image_path}: {e}")
+
+        print(f"✓ Faces loaded. {count} faces encoded from {len(set(known_face_names))} unique students.")
+        if count > 0:
+            print(f"   Students: {', '.join(sorted(set(known_face_names)))}")
+        else:
+            print("   ⚠ WARNING: No faces loaded! Student recognition will not work.")
+            print("   Make sure you have student photos in the 'faces/' directory")
+        
+        faces_loaded = True
+
+    finally:
+        loading_lock.release()
 
 def get_loaded_students():
     """Return list of loaded student names"""
@@ -275,6 +295,13 @@ def identify_face(face_encoding):
     best_match_index = np.argmin(face_distances)
     confidence_score = face_distances[best_match_index]
     
+    # Sort distances to view top matches
+    top_indices = np.argsort(face_distances)[:3]
+    print(f"   🔍 Face Matches: ", end="")
+    for idx in top_indices:
+        print(f"{known_face_names[idx]} ({face_distances[idx]:.3f}) | ", end="")
+    print("")
+
     # Use a more lenient threshold (0.65 instead of 0.6) for better recognition
     # Also return confidence for better tracking
     if face_distances[best_match_index] < 0.65:
@@ -298,11 +325,12 @@ def analyze_emotion_from_base64(base64_string):
             'message': str
         }
     """
-    global model, face_cascade, faces_loaded
+    global model, face_cascade, faces_loaded, MODEL_AVAILABLE
     
+    # Always try to init (loads faces + optionally the emotion model)
+    # This will NOT block if the emotion model fails — gaze/ID still work
     if model is None:
-        if not init_emotion_model():
-            return {'success': False, 'message': 'Model not initialized'}
+        init_emotion_model()
 
     try:
         # Decode base64 image
@@ -316,38 +344,41 @@ def analyze_emotion_from_base64(base64_string):
         if img is None:
             return {'success': False, 'message': 'Failed to decode image'}
 
-        # 1. EMOTION DETECTION (Existing logic on crop)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
-        
-        emotion_result = "Unknown"
+        # Default emotion — used when model is unavailable
+        emotion_result = "Neutral"
         confidence = 0.0
         face_detected = False
         student_name = "Unknown"
-        
-        if len(faces) > 0:
-            face_detected = True
-            faces = sorted(faces, key=lambda x: x[2] * x[3], reverse=True)
-            (x, y, w, h) = faces[0]
+
+        # 1. EMOTION DETECTION — only if model loaded successfully
+        if MODEL_AVAILABLE and model is not None and face_cascade is not None:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
             
-            roi_gray = gray[y:y + h, x:x + w]
-            roi_gray = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
-            
-            if np.sum([roi_gray]) != 0:
-                roi = roi_gray.astype('float') / 255.0
-                roi = np.expand_dims(roi, axis=0) # Normalize and reshape for model
+            if len(faces) > 0:
+                face_detected = True
+                faces = sorted(faces, key=lambda x: x[2] * x[3], reverse=True)
+                (x, y, w, h) = faces[0]
                 
-                # Predict
-                from tensorflow.keras.preprocessing.image import img_to_array
-                roi = img_to_array(roi[0])
-                roi = np.expand_dims(roi, axis=0)
+                roi_gray = gray[y:y + h, x:x + w]
+                roi_gray = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
                 
-                prediction = model.predict(roi, verbose=0)[0]
-                maxindex = int(np.argmax(prediction))
-                emotion_result = emotion_dict[maxindex]
-                confidence = float(prediction[maxindex])
-        else:
-            return {'success': False, 'message': 'No face detected'}
+                if np.sum([roi_gray]) != 0:
+                    roi = roi_gray.astype('float') / 255.0
+                    roi = np.expand_dims(roi, axis=0)
+                    
+                    try:
+                        from tensorflow.keras.preprocessing.image import img_to_array
+                        roi = img_to_array(roi[0])
+                        roi = np.expand_dims(roi, axis=0)
+                        prediction = model.predict(roi, verbose=0)[0]
+                        maxindex = int(np.argmax(prediction))
+                        emotion_result = emotion_dict[maxindex]
+                        confidence = float(prediction[maxindex])
+                    except Exception as em_err:
+                        print(f"⚠ Emotion prediction error: {em_err}")
+                        emotion_result = "Neutral"
+        # If model not available, gaze/face-recognition path below still runs
 
         # 2. GAZE, DROWSINESS & IDENTIFICATION
         is_attentive = False
@@ -359,7 +390,9 @@ def analyze_emotion_from_base64(base64_string):
             landmarks = get_face_landmarks(image_rgb)
             
             # Identify Face - CRITICAL: This must work for individual student tracking
-            face_encodings = face_recognition.face_encodings(image_rgb, num_jitters=1)
+            # Detect face locations first (upsample=2 helps with smaller/farther faces)
+            face_locs = face_recognition.face_locations(image_rgb, number_of_times_to_upsample=2, model='hog')
+            face_encodings = face_recognition.face_encodings(image_rgb, known_face_locations=face_locs, num_jitters=1)
             if face_encodings:
                 student_name, face_distance = identify_face(face_encodings[0])
                 # Convert distance to confidence percentage (distance 0.0 = 100%, distance 0.65 = 0%)
@@ -382,16 +415,17 @@ def analyze_emotion_from_base64(base64_string):
                 right_ear = calculate_ear(landmarks['right_eye'])
                 avg_ear = (left_ear + right_ear) / 2.0
                 
-                # Logic Determination - STRICTER RULES
-                # Yaw: Left/Right head turn (should be close to 0 for looking at screen)
-                # Pitch: Up/Down head tilt (negative = looking up, positive = looking down)
-                is_looking_sideways = abs(yaw) > YAW_THRESHOLD
-                is_looking_up = pitch < PITCH_THRESHOLD_UP  # Looking up (away from screen)
-                is_looking_too_far_down = pitch > 30  # Looking too far down (not at screen)
+                # Logic Determination - EXTREMELY RELAXED RULES
+                # Yaw: Left/Right head turn
+                # Pitch: Up/Down head tilt
+                
+                # Check for EXTREME distractions
+                is_looking_sideways = abs(yaw) > 40 # Only flag if > 40 degrees (big turn)
+                is_looking_up = pitch < -25         # Only flag if really looking up
                 is_sleeping = avg_ear < EAR_THRESHOLD
                 
-                # Check if person is looking at screen (yaw close to 0, pitch reasonable)
-                is_looking_at_screen = abs(yaw) <= 10 and pitch >= -10 and pitch <= 25
+                # Note Taking Detection: If pitch > 15 (looking down), assume taking notes -> ATTENTIVE
+                is_taking_notes = pitch > 15
                 
                 # Emotion Check
                 is_positive_emotion = emotion_result in ATTENTIVE_EMOTIONS
@@ -399,43 +433,31 @@ def analyze_emotion_from_base64(base64_string):
                 
                 distracted_reasons = []
                 if is_sleeping: 
-                    distracted_reasons.append("Drowsy/Sleeping")
+                    distracted_reasons.append(f"Drowsy (EAR {avg_ear:.2f})")
                 if is_looking_sideways: 
-                    distracted_reasons.append("Looking Sideways")
+                    distracted_reasons.append(f"Looking Side ({yaw:.0f}°)")
                 if is_looking_up:
-                    distracted_reasons.append("Looking Up")
-                if is_looking_too_far_down:
-                    distracted_reasons.append("Looking Down")
+                    distracted_reasons.append(f"Looking Up ({pitch:.0f}°)")
                 if is_negative_emotion:
                     distracted_reasons.append(emotion_result)
                 
-                # STRICT LOGIC: Only attentive if looking at screen AND no distractions AND positive/neutral emotion
-                if not is_looking_at_screen:
-                    is_attentive = False
-                    if not distracted_reasons:  # Add reason if not already in list
-                        if abs(yaw) > 10:
-                            status_message = "Not Looking at Screen (Sideways)"
-                        elif pitch < -10:
-                            status_message = "Not Looking at Screen (Up)"
-                        else:
-                            status_message = "Not Looking at Screen"
-                    else:
-                        status_message = f"Distracted ({', '.join(distracted_reasons)})"
+                # LOGIC:
+                # 1. If taking notes (looking down), IGNORE other gaze issues (except sleep) -> ATTENTIVE
+                # 2. Else, check for extreme distractions.
+                
+                if is_taking_notes and not is_sleeping:
+                     is_attentive = True
+                     status_message = "Attentive (Taking Notes)"
                 elif distracted_reasons:
                     is_attentive = False
                     status_message = f"Distracted ({', '.join(distracted_reasons)})"
                 else:
-                    # Looking at screen, no distractions, check emotion
-                    if is_positive_emotion or emotion_result == "Neutral":
-                        is_attentive = True
-                        status_message = "Attentive"
-                    else:
-                        # Unknown or negative emotion
-                        is_attentive = False
-                        status_message = f"Distracted ({emotion_result})"
+                    # No obvious distractions, assume attentive
+                    is_attentive = True
+                    status_message = "Attentive"
                     
                 # Debug print
-                print(f"User: {student_name}, Yaw: {yaw:.1f}, Pitch: {pitch:.1f}, EAR: {avg_ear:.2f}, Emotion: {emotion_result} -> {status_message}")
+                print(f"User: {student_name}, Yaw: {yaw:.1f}, Pitch: {pitch:.1f}, EAR: {avg_ear:.2f}, TakingNotes: {is_taking_notes} -> {status_message}")
                 
             else:
                 is_attentive = emotion_result in ATTENTIVE_EMOTIONS

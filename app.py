@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, session, redirect, url_for, send_from
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
+import classroom_intelligence
+import voice_assistant
 import sqlite3
 import os
 from datetime import datetime, timedelta
@@ -81,6 +83,7 @@ try:
     import utils.emotion_detector as emotion_detector
     emotion_recognition_available = True
     print("✓ Emotion detector module loaded")
+
 except ImportError as e:
     print(f"⚠ Emotion detector module not loaded (missing dependencies?): {e}")
     emotion_recognition_available = False
@@ -159,50 +162,12 @@ def face_confidence(face_distance, face_match_threshold=0.65):
         return str(round(value, 2)) + '%'
 
 def load_known_faces():
-    """Load all known face encodings from the faces directory (including subdirectories)"""
-    global known_face_encodings, known_face_names
-    known_face_encodings = []
-    known_face_names = []
-    
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    faces_path = os.path.join(script_dir, "faces")
-    
-    if not os.path.exists(faces_path):
-        print(f"Faces directory not found at {faces_path}")
-        return
-    
-    # Walk through all subdirectories
-    for root, dirs, files in os.walk(faces_path):
-        for image_file in files:
-            if image_file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                image_path = os.path.join(root, image_file)
-                try:
-                    # Load image
-                    face_image = face_recognition.load_image_file(image_path)
-                    encodings = face_recognition.face_encodings(face_image, num_jitters=2)
-                    
-                    if encodings:
-                        # Use folder name as the person's name, or filename if in root
-                        if root == faces_path:
-                            # Image is in root faces folder
-                            person_name = os.path.splitext(image_file)[0]
-                        else:
-                            # Image is in a subdirectory - use folder name
-                            person_name = os.path.basename(root)
-                        
-                        # Add all encodings from this image (in case multiple faces)
-                        for encoding in encodings:
-                            known_face_encodings.append(encoding)
-                            known_face_names.append(person_name)
-                        
-                        print(f"✓ Loaded face: {person_name} from {image_file}")
-                    else:
-                        print(f"⚠ No face detected in: {image_path}")
-                except Exception as e:
-                    print(f"✗ Error loading {image_path}: {e}")
-    
-    print(f"\n✓ Loaded {len(known_face_names)} face encodings from {len(set(known_face_names))} unique people")
-    print(f"People: {', '.join(sorted(set(known_face_names)))}")
+    """Load all known face encodings using the centralized emotion_detector module"""
+    # Use centralized logic
+    if hasattr(emotion_detector, 'load_known_faces'):
+        emotion_detector.load_known_faces()
+    else:
+        print("⚠ emotion_detector module missing load_known_faces")
 
 def get_available_cameras():
     """Get list of available camera indices with device information"""
@@ -943,6 +908,71 @@ def start_emotion_tracking():
         print(f"Error creating lecture session: {e}")
         return jsonify({'success': True, 'message': 'Lecture session started (tracking only)'})
 
+
+# Initialize Database for new features
+def init_intelligence_db():
+    try:
+        conn = sqlite3.connect(attendance.DB_NAME)
+        cur = conn.cursor()
+        
+        # Table for Lecture Scores (Module 1)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS student_lecture_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lecture_id INTEGER,
+                student_id TEXT,
+                attention_score REAL,
+                discipline_score REAL,
+                confusion_moments INTEGER,
+                absence_duration REAL,
+                timestamp TEXT
+            )
+        ''')
+        
+        # Table for Doubts (Module 4)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS doubts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lecture_id INTEGER,
+                student_id TEXT,
+                question_text TEXT,
+                verified BOOLEAN DEFAULT 1,
+                timestamp TEXT
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("✓ Intelligence DB tables initialized")
+    except Exception as e:
+        print(f"Error initializing intelligence DB: {e}")
+
+# Run init immediately
+init_intelligence_db()
+
+@socketio.on('raise_hand')
+def handle_raise_hand(data):
+    """
+    Module 2: Raise Hand Event
+    Payload: { 'student_id': 'Name', 'lecture_id': 123 }
+    """
+    student_id = data.get('student_id')
+    lecture_id = data.get('lecture_id')
+    
+    # Fallback to session info if not provided
+    if not student_id:
+        student_id = session.get('username', 'Unknown')
+    if not lecture_id:
+        lecture_id = session.get('current_lecture_session_id', 0)
+    
+    print(f"✋ Raise Hand received from {student_id} for lecture {lecture_id}")
+    
+    # Trigger Intelligence Engine
+    classroom_intelligence.engine.trigger_raise_hand(student_id, lecture_id)
+    
+    # Ack to specific client or room
+    emit('status', {'msg': 'Hand raised. Please look at camera for validation.'})
+
 @app.route('/api/analyze-emotion', methods=['POST'])
 def analyze_emotion():
     global lecture_sessions
@@ -953,95 +983,92 @@ def analyze_emotion():
     try:
         # Ensure faces are loaded before processing
         if not emotion_detector.is_face_recognition_ready():
-            print("⚠ Faces not loaded, attempting to load now...")
             emotion_detector.load_known_faces()
-            if not emotion_detector.is_face_recognition_ready():
-                print("⚠ WARNING: Face recognition not ready - students will be marked as 'Unknown'")
         
         data = request.json
         image_data = data.get('image')
+        # Frontend usually sends 'student_name' if it knows it, or we identify it
+        student_name_input = data.get('student_name', 'Unknown') 
         
         if not image_data:
             return jsonify({'success': False, 'message': 'No image data provided'}), 400
 
         result = emotion_detector.analyze_emotion_from_base64(image_data)
+        print(f"🔎 analyze result: success={result.get('success')}, msg={result.get('message','')}, emotion={result.get('emotion','')}, attentive={result.get('is_attentive','')}, student={result.get('student_name','')}")
         
         if result['success']:
-            student_name = result.get('student_name', 'Unknown')
-            raw_is_attentive = result['is_attentive']
-            confidence = result.get('confidence', 0.0)
+            detected_name = result.get('student_name', 'Unknown')
+            # Use detected name if available, else frontend name if reasonable
+            student_name = detected_name if detected_name != 'Unknown' else student_name_input
             
-            # Initialize student session if new
+            # --- INTELLIGENCE ENGINE HOOK ---
+            current_lecture_id = session.get('current_lecture_session_id', 0)
+            
+            # Feed frame to engine
+            engine_result = classroom_intelligence.engine.process_frame(
+                lecture_id=current_lecture_id,
+                student_id=student_name,
+                emotion_data=result
+            )
+            
+            # Check for Voice Trigger Action
+            if isinstance(engine_result, dict) and engine_result.get('action') == 'trigger_voice_doubt':
+                target_student = engine_result.get('student_id')
+                print(f"🎙 Starting Voice Assistant for {target_student}")
+                
+                # Start voice loop in background thread
+                def voice_task():
+                    voice_assistant.voice_assistant.listen_and_process(
+                        target_student, 
+                        current_lecture_id, 
+                        classroom_intelligence.engine.reset_student_status
+                    )
+                
+                threading.Thread(target=voice_task).start()
+            
+            # Get Scores
+            attention_score = 0
+            discipline_score = 0
+            status_text = "Active"
+            
+            if isinstance(engine_result, dict) and 'attention_score' in engine_result:
+                attention_score = engine_result['attention_score']
+                discipline_score = engine_result['discipline_score']
+                status = engine_result['status']
+                if status == 'awaiting_face_validation':
+                    status_text = "Validating Face..."
+                elif status == 'recording_doubt':
+                    status_text = "Listening..."
+            
+            # Maintain backward compatibility with existing session tracking for UI
+            confidence = result.get('confidence', 0.0)
             if student_name not in lecture_sessions:
                 lecture_sessions[student_name] = {
-                    'total_frames': 0,
-                    'attentive_frames': 0,
-                    'last_seen': datetime.now(),
-                    'history': [],  # Last N frame states
-                    'confidence_scores': [],  # Last N confidence scores
-                    'distraction_reasons': {},  # Count of distraction types
-                    'current_state': True  # Start optimistic
+                    'total_frames': 0, 'attentive_frames': 0, 'last_seen': datetime.now(),
+                    'history': [], 'confidence_scores': [], 'distraction_reasons': {}, 'current_state': True
                 }
             
-            session = lecture_sessions[student_name]
-            
-            # CONFIDENCE FILTERING: Only process high-confidence detections
-            if confidence >= CONFIDENCE_THRESHOLD:
-                # Add to history (keep only last HISTORY_LENGTH frames)
-                session['history'].append(raw_is_attentive)
-                session['confidence_scores'].append(confidence)
-                
-                if len(session['history']) > HISTORY_LENGTH:
-                    session['history'].pop(0)
-                    session['confidence_scores'].pop(0)
-                
-                # TEMPORAL SMOOTHING: Require CONSECUTIVE_FRAMES_REQUIRED out of HISTORY_LENGTH
-                if len(session['history']) >= HISTORY_LENGTH:
-                    attentive_count = sum(session['history'])
-                    smoothed_is_attentive = attentive_count >= CONSECUTIVE_FRAMES_REQUIRED
-                    session['current_state'] = smoothed_is_attentive
-                else:
-                    # Not enough history yet, use raw value
-                    session['current_state'] = raw_is_attentive
-                
-                # Track distraction reasons if available
-                if 'distraction_reason' in result and not raw_is_attentive:
-                    reason = result['distraction_reason']
-                    session['distraction_reasons'][reason] = session['distraction_reasons'].get(reason, 0) + 1
-            else:
-                # Low confidence - maintain previous state
-                print(f"Low confidence ({confidence:.2f}) - maintaining previous state")
-            
-            # Update session stats
-            session['total_frames'] += 1
-            if session['current_state']:
-                session['attentive_frames'] += 1
-            session['last_seen'] = datetime.now()
-            
-            # Calculate average confidence
-            avg_confidence = sum(session['confidence_scores']) / len(session['confidence_scores']) if session['confidence_scores'] else confidence
-            
-            # Get recognition confidence if available
-            recognition_confidence = result.get('recognition_confidence', 0.0)
-            
-            # Enhanced logging with recognition info
-            history_str = ''.join(['✓' if x else '✗' for x in session['history']]) if session['history'] else 'N/A'
-            recognition_status = f"Recognized: {student_name}" if student_name != "Unknown" else "Not Recognized"
-            print(f"Student: {student_name} ({recognition_status}) | Raw: {raw_is_attentive} | Smoothed: {session['current_state']} | "
-                  f"History: [{history_str}] | Emotion Conf: {confidence:.2f} | Recognition Conf: {recognition_confidence:.1f}% | "
-                  f"Session: {session['attentive_frames']}/{session['total_frames']} ({session['attentive_frames']/session['total_frames']*100:.1f}%)")
-            
+            # Simplified Logic for Legacy Session Data (We rely on Engine now, but keep this simple update)
+            sess_data = lecture_sessions[student_name]
+            sess_data['total_frames'] += 1
+            if result['is_attentive']: sess_data['attentive_frames'] += 1
+            sess_data['current_state'] = result['is_attentive']
+            if confidence >= 0.6: 
+                 sess_data['confidence_scores'].append(confidence)
+                 if len(sess_data['confidence_scores']) > 10: sess_data['confidence_scores'].pop(0)
+
             return jsonify({
                 'success': True,
                 'data': {
                     'emotion': result['emotion'],
-                    'is_attentive': session['current_state'],  # Return SMOOTHED state
+                    'is_attentive': result['is_attentive'],
                     'confidence': confidence,
-                    'avg_confidence': avg_confidence,
                     'student_name': student_name,
-                    'recognition_confidence': recognition_confidence,
-                    'history': session['history'][-3:],  # Last 3 frames for UI
-                    'detection_quality': 'high' if confidence >= 0.8 else 'medium' if confidence >= CONFIDENCE_THRESHOLD else 'low'
+                    'intelligence': {
+                        'attention_score': attention_score,
+                        'discipline_score': discipline_score,
+                        'status': status_text
+                    }
                 }
             })
         else:
@@ -1049,89 +1076,88 @@ def analyze_emotion():
             
     except Exception as e:
         print(f"Emotion API Error: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/end-lecture', methods=['POST'])
 @teacher_required
 def end_emotion_tracking():
-    """End lecture session and return enhanced attentiveness summary"""
+    """End lecture session and save intelligence scores"""
     global lecture_sessions
     
     try:
+        lecture_id = session.get('current_lecture_session_id', 0)
+        print(f"Ending lecture {lecture_id}...")
+        
+        # 1. Save scores from Intelligence Engine to DB (Module 1 Persistence)
+        if lecture_id:
+             try:
+                 conn = sqlite3.connect(attendance.DB_NAME)
+                 cur = conn.cursor()
+                 
+                 for student_id, state in classroom_intelligence.engine.student_states.items():
+                     cur.execute('''
+                         INSERT INTO student_lecture_scores 
+                         (lecture_id, student_id, attention_score, discipline_score, confusion_moments, absence_duration, timestamp)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)
+                     ''', (lecture_id, student_id, state.attention_score, state.discipline_score, 
+                           state.confusion_count, state.absence_duration, datetime.now().isoformat()))
+                     
+                     print(f"Saved scores for {student_id}: Att={state.attention_score}, Disc={state.discipline_score}")
+                 
+                 # Terminate session
+                 cur.execute("UPDATE lecture_sessions SET status = 'ended', end_time = ? WHERE id = ?", 
+                            (datetime.now().isoformat(), lecture_id))
+                 
+                 conn.commit()
+                 conn.close()
+             except Exception as db_e:
+                 print(f"DB Save Error: {db_e}")
+        
+        # Clean up engine resources
+        classroom_intelligence.engine.end_lecture(lecture_id)
+        
+        # 2. Construct Summary for Frontend (using Engine Data for accuracy)
         summary = []
+        # Use simple adaptation for frontend expected format
+        for student_id, state in classroom_intelligence.engine.student_states.items():
+             summary.append({
+                 'name': student_id,
+                 'attentive_percentage': int(state.attention_score),
+                 'total_time_seconds': 0, # Placeholder
+                 'avg_confidence': 0,
+                 'top_distraction': f"Discipline: {int(state.discipline_score)}",
+                 'distraction_count': state.confusion_count
+             })
         
-        for student_name, data in lecture_sessions.items():
-            total_frames = data['total_frames']
-            attentive_frames = data['attentive_frames']
-            
-            # Calculate percentage
-            attentive_percentage = round((attentive_frames / total_frames * 100)) if total_frames > 0 else 0
-            
-            # Estimate time (assuming 2 seconds per frame based on frontend interval)
-            total_time_seconds = total_frames * 2
-            
-            # Calculate average confidence
-            avg_confidence = sum(data['confidence_scores']) / len(data['confidence_scores']) if data['confidence_scores'] else 0
-            
-            # Get top distraction reason
-            top_distraction = max(data['distraction_reasons'].items(), key=lambda x: x[1])[0] if data['distraction_reasons'] else 'None'
-            
-            summary.append({
-                'name': student_name,
-                'total_frames': total_frames,
-                'attentive_frames': attentive_frames,
-                'attentive_percentage': attentive_percentage,
-                'total_time_seconds': total_time_seconds,
-                'avg_confidence': round(avg_confidence * 100, 1),
-                'top_distraction': top_distraction,
-                'distraction_count': sum(data['distraction_reasons'].values())
-            })
-        
-        print(f"Lecture ended. Enhanced summary: {summary}")
-        
-        # REAL-TIME: Broadcast lecture ended to all students
-        lecture_session_id = session.get('current_lecture_session_id')
+        # Fallback to old session data if engine data is empty (e.g. quick testing)
+        if not summary and lecture_sessions:
+            for student_name, data in lecture_sessions.items():
+                total = data['total_frames']
+                attentive = data['attentive_frames']
+                pct = round((attentive / total * 100)) if total > 0 else 0
+                summary.append({
+                    'name': student_name,
+                    'attentive_percentage': pct,
+                    'total_time_seconds': total * 2,
+                    'top_distraction': ' Legacy Data'
+                })
+
+        # Broadcast end
         class_id = session.get('current_lecture_class_id')
-        section_id = session.get('current_lecture_section_id')
-        
         if class_id:
-            room_name = f"classroom:{class_id}:{section_id}" if section_id else f"classroom:{class_id}"
+            room_name = f"classroom:{class_id}"
             socketio.emit('lecture_ended', {
-                'session_id': lecture_session_id,
-                'end_time': datetime.now().isoformat(),
+                'session_id': lecture_id,
                 'summary': summary,
                 'status': 'ended'
             }, room=room_name)
-            print(f"📡 Real-time: Broadcasted 'lecture_ended' to room: {room_name}")
             
-            # Update database status
-            if lecture_session_id:
-                try:
-                    conn = sqlite3.connect(attendance.DB_NAME)
-                    cur = conn.cursor()
-                    cur.execute('''
-                        UPDATE lecture_sessions 
-                        SET status = 'ended', end_time = ?
-                        WHERE id = ?
-                    ''', (datetime.now().isoformat(), lecture_session_id))
-                    conn.commit()
-                    conn.close()
-                except Exception as e:
-                    print(f"Error updating lecture session status: {e}")
-        
-        # Don't clear lecture_sessions yet - let start_lecture do that
-        # This allows the summary to be fetched multiple times if needed
-        
         return jsonify({
             'success': True,
             'summary': summary
         })
     except Exception as e:
         print(f"End Lecture Error: {e}")
-        import traceback
-        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/lecture/schedule', methods=['POST'])
@@ -1195,6 +1221,7 @@ def schedule_lecture():
             'schedule_id': schedule_id
         })
     except Exception as e:
+        print(f"Emotion API Error: {e}") # Added this line as per instruction
         print(f"Error scheduling lecture: {e}")
         import traceback
         traceback.print_exc()
@@ -2092,11 +2119,16 @@ def reload_faces():
     """Reload face encodings from the faces directory"""
     try:
         load_known_faces()
+        
+        # Get count from emotion_detector
+        count = len(emotion_detector.known_face_names) if hasattr(emotion_detector, 'known_face_names') else 0
+        people = list(set(emotion_detector.known_face_names)) if hasattr(emotion_detector, 'known_face_names') else []
+
         return jsonify({
             'success': True,
-            'message': f'Reloaded {len(known_face_names)} face encodings',
-            'count': len(known_face_names),
-            'people': list(set(known_face_names))
+            'message': f'Reloaded {count} face encodings',
+            'count': count,
+            'people': people
         })
     except Exception as e:
         import traceback
@@ -2108,11 +2140,15 @@ def reload_faces():
 def get_faces_status():
     """Get status of loaded faces"""
     try:
+        # Use emotion_detector globals
+        names = emotion_detector.known_face_names if hasattr(emotion_detector, 'known_face_names') else []
+        encodings_len = len(emotion_detector.known_face_encodings) if hasattr(emotion_detector, 'known_face_encodings') else 0
+        
         return jsonify({
             'success': True,
-            'total_encodings': len(known_face_encodings),
-            'unique_people': len(set(known_face_names)) if known_face_names else 0,
-            'people': list(set(known_face_names)) if known_face_names else []
+            'total_encodings': encodings_len,
+            'unique_people': len(set(names)) if names else 0,
+            'people': list(set(names)) if names else []
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2245,9 +2281,13 @@ def recognize_faces():
             name = "Unknown"
             confidence = "0%"
             
-            if known_face_encodings:
+            # Use emotion_detector globals
+            loc_known_encodings = emotion_detector.known_face_encodings if hasattr(emotion_detector, 'known_face_encodings') else []
+            loc_known_names = emotion_detector.known_face_names if hasattr(emotion_detector, 'known_face_names') else []
+
+            if loc_known_encodings:
                 # Calculate distances to all known faces
-                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                face_distances = face_recognition.face_distance(loc_known_encodings, face_encoding)
                 
                 # Find the best match (lowest distance)
                 best_match_index = np.argmin(face_distances)
@@ -2257,11 +2297,11 @@ def recognize_faces():
                 # Lower distance = better match, so 0.50 is more strict than 0.65
                 if best_distance < 0.50:
                     # Get all matches for this person (they might have multiple photos)
-                    person_name = known_face_names[best_match_index]
+                    person_name = loc_known_names[best_match_index]
                     
                     # Check all encodings for this person to find the best match
                     person_distances = []
-                    for idx, stored_name in enumerate(known_face_names):
+                    for idx, stored_name in enumerate(loc_known_names):
                         if stored_name == person_name:
                             person_distances.append(face_distances[idx])
                     
@@ -3442,10 +3482,15 @@ def background_attendance_check():
             face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=2)
             
             recognized_students = []
+            
+            # Use emotion_detector globals
+            loc_known_encodings = emotion_detector.known_face_encodings if hasattr(emotion_detector, 'known_face_encodings') else []
+            loc_known_names = emotion_detector.known_face_names if hasattr(emotion_detector, 'known_face_names') else []
+
             for face_encoding in face_encodings:
-                if known_face_encodings:
+                if loc_known_encodings:
                     # Calculate distances to all known faces
-                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                    face_distances = face_recognition.face_distance(loc_known_encodings, face_encoding)
                     
                     if len(face_distances) > 0:
                         # Find the best match (lowest distance)
@@ -3454,11 +3499,11 @@ def background_attendance_check():
                         
                         # More lenient matching - accept if distance is less than 0.65
                         if best_distance < 0.65:
-                            person_name = known_face_names[best_match_index]
+                            person_name = loc_known_names[best_match_index]
                             
                             # Check all encodings for this person to find the best match among their photos
                             person_distances = []
-                            for idx, stored_name in enumerate(known_face_names):
+                            for idx, stored_name in enumerate(loc_known_names):
                                 if stored_name == person_name:
                                     person_distances.append(face_distances[idx])
                             

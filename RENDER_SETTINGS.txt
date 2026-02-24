@@ -1,0 +1,62 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 RENDER BACKEND DEPLOYMENT - COPY & PASTE READY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 BASIC SETTINGS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Repository: Edwinjoseph0210/Tutor-ai-antigravity
+Name: tutor-ai-backend
+Region: [Choose closest to you]
+Branch: main
+Root Directory: [LEAVE BLANK]
+Runtime: Python 3
+
+
+🔧 BUILD & START COMMANDS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Build Command (copy this exactly):
+pip install -r requirements.txt
+
+Start Command (copy this exactly):
+gunicorn --worker-class gthread --threads 4 --timeout 120 --bind 0.0.0.0:$PORT app:app
+
+
+💰 INSTANCE TYPE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Free
+
+
+🔐 ENVIRONMENT VARIABLES (Click "Advanced" → "Add Environment Variable"):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Variable 1:
+  Key: GEMINI_API_KEY
+  Value: [YOUR GEMINI API KEY]
+
+Variable 2:
+  Key: DISABLE_FACE_RECO
+  Value: 1
+
+Variable 3:
+  Key: FLASK_ENV
+  Value: production
+
+
+✅ AFTER DEPLOYMENT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Copy your backend URL (shown at the top)
+   Format: https://tutor-ai-backend-XXXXX.onrender.com
+
+2. Test it by visiting:
+   https://[YOUR-URL]/api/health
+   
+   Should return: {"status":"ok"}
+
+3. SAVE THIS URL - you'll need it for the frontend!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

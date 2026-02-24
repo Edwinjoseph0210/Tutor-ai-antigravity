@@ -14,8 +14,8 @@ const LiveLecture = () => {
     // Emotion Recognition State
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
-    const [currentEmotion, setCurrentEmotion] = useState(null);
-    const [isAttentive, setIsAttentive] = useState(true);
+    const [currentEmotion, setCurrentEmotion] = useState('Initializing...');
+    const [isAttentive, setIsAttentive] = useState(false);
     const [sessionLogs, setSessionLogs] = useState([]);
     const [showReport, setShowReport] = useState(false);
     const [stream, setStream] = useState(null);
@@ -177,26 +177,19 @@ const LiveLecture = () => {
     };
 
     // Analysis Loop - Enhanced with faster sampling
-    useEffect(() => {
-        let intervalId;
-        if (lectureActive && stream) {
-            intervalId = setInterval(() => {
-                captureAndAnalyze();
-            }, 2000); // Check every 2 seconds (improved from 5s)
-        }
-        return () => clearInterval(intervalId);
-    }, [lectureActive, stream]);
-
     const [detectedStudent, setDetectedStudent] = useState(null);
-    const [detectionQuality, setDetectionQuality] = useState('medium'); // New state for quality
-    const [avgConfidence, setAvgConfidence] = useState(0); // New state for avg confidence
+    const [detectionQuality, setDetectionQuality] = useState('medium');
+    const [avgConfidence, setAvgConfidence] = useState(0);
 
     const captureAndAnalyze = async () => {
-        if (!videoRef.current || !canvasRef.current) return;
+        if (!videoRef.current || !canvasRef.current) {
+            console.log('[Analysis] Skipping - no video/canvas ref');
+            return;
+        }
 
         const context = canvasRef.current.getContext('2d');
-        context.drawImage(videoRef.current, 0, 0, 320, 240);
-        const imageBase64 = canvasRef.current.toDataURL('image/jpeg');
+        context.drawImage(videoRef.current, 0, 0, 640, 480);
+        const imageBase64 = canvasRef.current.toDataURL('image/jpeg', 0.85);
 
         try {
             const response = await fetch('/api/analyze-emotion', {
@@ -204,15 +197,15 @@ const LiveLecture = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     image: imageBase64,
-                    student_name: 'You' // Initial default, but backend might override
+                    student_name: 'You'
                 })
             });
             const data = await response.json();
+            console.log('[Analysis] Response:', data.success, data.data?.emotion, data.data?.is_attentive);
 
-            if (data.success) {
-                let emotionDisplay = data.data.emotion;
+            if (data.success && data.data) {
+                const emotionDisplay = data.data.emotion || 'Neutral';
 
-                // Update Name from backend
                 if (data.data.student_name && data.data.student_name !== 'Unknown') {
                     setDetectedStudent(data.data.student_name);
                 } else {
@@ -221,8 +214,6 @@ const LiveLecture = () => {
 
                 setCurrentEmotion(emotionDisplay);
                 setIsAttentive(data.data.is_attentive);
-
-                // Update new metrics
                 setDetectionQuality(data.data.detection_quality || 'medium');
                 setAvgConfidence(data.data.avg_confidence || 0);
 
@@ -231,16 +222,46 @@ const LiveLecture = () => {
                     emotion: emotionDisplay,
                     isAttentive: data.data.is_attentive
                 }]);
-            } else if (data.message === 'No face detected') {
-                setCurrentEmotion('No Face Detected');
-                setIsAttentive(false);
-                setDetectedStudent(null);
-                setDetectionQuality('low');
+            } else {
+                const msg = data.message || '';
+                console.log('[Analysis] Backend error:', msg);
+                if (msg.toLowerCase().includes('face')) {
+                    setCurrentEmotion('No Face Detected');
+                    setIsAttentive(false);
+                    setDetectedStudent(null);
+                } else {
+                    setCurrentEmotion('Analyzing...');
+                }
             }
         } catch (error) {
-            console.error('Error analyzing emotion:', error);
+            console.error('[Analysis] Fetch error:', error);
         }
     };
+
+    // Analysis Loop - recursive setTimeout to prevent request flooding
+    const isActiveRef = useRef(false);
+    useEffect(() => {
+        if (lectureActive && stream) {
+            isActiveRef.current = true;
+            console.log('[Loop] Starting analysis loop');
+
+            const loop = async () => {
+                if (!isActiveRef.current) return;
+                console.log('[Loop] Running captureAndAnalyze...');
+                await captureAndAnalyze();
+                if (isActiveRef.current) {
+                    setTimeout(loop, 2000);
+                }
+            };
+
+            loop();
+        }
+
+        return () => {
+            console.log('[Loop] Stopping analysis loop');
+            isActiveRef.current = false;
+        };
+    }, [lectureActive, stream]);
 
     // Summary Report Component
     const SessionReport = () => {
@@ -336,14 +357,22 @@ const LiveLecture = () => {
                                     <td style={{ padding: '1rem', borderBottom: '1px solid #eee' }}>You</td>
                                     <td style={{ padding: '1rem', textAlign: 'center', borderBottom: '1px solid #eee' }}>-</td>
                                     <td style={{ padding: '1rem', textAlign: 'center', borderBottom: '1px solid #eee' }}>
-                                        <span style={{
-                                            padding: '0.25rem 0.75rem', borderRadius: '20px',
-                                            background: primaryScore >= 70 ? '#e8f5e9' : '#ffebee',
-                                            color: primaryScore >= 70 ? '#2e7d32' : '#c62828',
-                                            fontWeight: 'bold'
-                                        }}>
-                                            {primaryScore >= 70 ? 'Attentive' : 'Distracted'}
-                                        </span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                                            <span style={{
+                                                padding: '0.25rem 0.75rem', borderRadius: '20px',
+                                                background: primaryScore >= 70 ? '#e8f5e9' : '#ffebee',
+                                                color: primaryScore >= 70 ? '#2e7d32' : '#c62828',
+                                                fontWeight: 'bold'
+                                            }}>
+                                                {primaryScore >= 70 ? 'Attentive' : 'Distracted'}
+                                            </span>
+                                            {/* Show most common distraction if distracted */}
+                                            {primaryScore < 70 && (
+                                                <span style={{ fontSize: '0.8rem', color: '#666' }}>
+                                                    Mostly: {primaryEmotion.includes('|') ? primaryEmotion.split('|')[1].trim() : primaryEmotion}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                 </tr>
                             )}
@@ -482,16 +511,26 @@ const LiveLecture = () => {
                                         muted
                                         className="monitor-video"
                                     />
-                                    <canvas ref={canvasRef} width="320" height="240" style={{ display: 'none' }} />
+                                    <canvas ref={canvasRef} width="640" height="480" style={{ display: 'none' }} />
 
                                     <div className="status-overlay">
                                         <div className={`attentive-badge ${isAttentive ? 'status-attentive' : 'status-distracted'}`}>
                                             <i className={`fas fa-${isAttentive ? 'check-circle' : 'exclamation-circle'}`}></i>
                                             {isAttentive ? 'ATTENTIVE' : 'DISTRACTED'}
                                         </div>
+                                        {/* Show Detailed Distraction Reason */}
+                                        {!isAttentive && currentEmotion && currentEmotion.includes('|') && (
+                                            <div className="distraction-detail-tag" style={{
+                                                background: 'rgba(255, 0, 0, 0.7)', color: 'white',
+                                                padding: '4px 8px', borderRadius: '4px', marginTop: '4px', fontSize: '0.85rem', fontWeight: 'bold'
+                                            }}>
+                                                {currentEmotion.split('|')[1].trim()}
+                                            </div>
+                                        )}
+
                                         {currentEmotion && (
                                             <div className="emotion-tag">
-                                                {currentEmotion}
+                                                {currentEmotion.split('|')[0].trim()}
                                             </div>
                                         )}
                                         {detectedStudent && (

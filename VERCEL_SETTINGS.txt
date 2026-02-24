@@ -1,0 +1,30 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎨 VERCEL FRONTEND DEPLOYMENT - COPY & PASTE READY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 PROJECT SETTINGS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Repository: Edwinjoseph0210/Tutor-ai-antigravity
+Framework Preset: Create React App (auto-detects)
+
+⚠️  ROOT DIRECTORY: frontend  ← CRITICAL! CLICK EDIT AND SELECT THIS!
+
+Build Command: npm run build (auto)
+Output Directory: build (auto)
+Install Command: npm install (auto)
+
+
+✅ AFTER DEPLOYMENT:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Copy your Vercel URL (shown after deployment)
+   Format: https://tutor-ai-antigravity.vercel.app
+
+2. Test it by visiting the URL
+   Should see: Login page
+
+3. SAVE THIS URL - you'll need it for CORS!
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
