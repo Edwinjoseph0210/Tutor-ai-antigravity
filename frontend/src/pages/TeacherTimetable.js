@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import { ImmersiveLayout } from '../components/immersive';
 
 const TeacherTimetable = () => {
     const navigate = useNavigate();
@@ -8,454 +8,308 @@ const TeacherTimetable = () => {
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [newEntry, setNewEntry] = useState({
-        day_of_week: 1,
-        start_time: '09:00',
-        end_time: '10:00',
-        class_id: '',
-        section_id: '',
-        subject: '',
-        room_number: ''
+        day_of_week: 1, start_time: '09:00', end_time: '10:00',
+        class_id: '', section_id: '', subject: '', room_number: ''
     });
 
     const fetchTimetable = useCallback(async () => {
         try {
-            const response = await fetch('/api/teacher/timetable', {
-                credentials: 'include'
-            });
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success) {
-                    setSchedule(data.data);
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching timetable:', error);
-        } finally {
-            setLoading(false);
-        }
+            const res = await fetch('/api/teacher/timetable', { credentials: 'include' });
+            if (res.ok) { const d = await res.json(); if (d.success) setSchedule(d.data); }
+        } catch (e) { console.error('Error fetching timetable:', e); }
+        finally { setLoading(false); }
     }, []);
 
-    useEffect(() => {
-        fetchTimetable();
-    }, [fetchTimetable]);
+    useEffect(() => { fetchTimetable(); }, [fetchTimetable]);
 
     const handleAddEntry = async () => {
         try {
-            const response = await fetch('/api/teacher/timetable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(newEntry)
+            const res = await fetch('/api/teacher/timetable', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', body: JSON.stringify(newEntry)
             });
-
-            if (response.ok) {
-                setShowAddModal(false);
-                fetchTimetable();
-                setNewEntry({
-                    day_of_week: 1,
-                    start_time: '09:00',
-                    end_time: '10:00',
-                    class_id: '',
-                    section_id: '',
-                    subject: '',
-                    room_number: ''
-                });
+            if (res.ok) {
+                setShowAddModal(false); fetchTimetable();
+                setNewEntry({ day_of_week: 1, start_time: '09:00', end_time: '10:00', class_id: '', section_id: '', subject: '', room_number: '' });
             }
-        } catch (error) {
-            console.error('Error adding entry:', error);
-        }
+        } catch (e) { console.error('Error adding entry:', e); }
     };
 
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
     const timeSlots = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
 
-    const getClassAtTime = (day, time) => {
-        const daySchedule = schedule[day] || [];
-        return daySchedule.find(cls => cls.start_time === time);
-    };
+    const getClassAtTime = (day, time) => (schedule[day] || []).find(c => c.start_time === time);
 
     const getSubjectColor = (subject) => {
-        const colors = {
-            'Mathematics': '#667eea',
-            'Physics': '#f56565',
-            'Chemistry': '#48bb78',
-            'Biology': '#ed8936',
-            'English': '#9f7aea',
-            'Computer Science': '#4299e1'
-        };
-        return colors[subject] || '#718096';
+        const m = { 'Mathematics': '#667eea', 'Physics': '#f56565', 'Chemistry': '#48bb78', 'Biology': '#ed8936', 'English': '#9f7aea', 'Computer Science': '#4299e1' };
+        return m[subject] || '#a78bfa';
+    };
+
+    const inputStyle = {
+        width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px',
+        border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+        color: 'white', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box',
+    };
+    const labelStyle = {
+        display: 'block', marginBottom: '0.35rem', color: 'rgba(255,255,255,0.5)',
+        fontSize: '0.78rem', fontWeight: '600',
     };
 
     if (loading) {
         return (
-            <div style={{
-                minHeight: '100vh',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-            }}>
-                <div style={{ textAlign: 'center', color: 'white' }}>
-                    <div style={{
-                        width: '60px',
-                        height: '60px',
-                        border: '4px solid rgba(255, 255, 255, 0.3)',
-                        borderTop: '4px solid white',
-                        borderRadius: '50%',
-                        animation: 'spin 1s linear infinite',
-                        margin: '0 auto 1rem auto'
-                    }} />
-                    <p>Loading timetable...</p>
+            <div style={{ minHeight: '100vh', background: '#0f0a1e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
+                <div style={{ textAlign: 'center' }}>
+                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: '#9f7aea', marginBottom: '1rem', display: 'block' }} />
+                    <div>Loading schedule...</div>
                 </div>
             </div>
         );
     }
 
     return (
-        <div style={{ minHeight: '100vh', background: '#f7fafc' }}>
-            {/* Header */}
-            <div style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                padding: '2rem',
-                color: 'white',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
-            }}>
-                <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h1 style={{ fontSize: '2rem', fontWeight: '800', margin: 0 }}>
-                            📅 My Teaching Schedule
-                        </h1>
-                        <div style={{ display: 'flex', gap: '1rem' }}>
-                            <button
-                                onClick={() => setShowAddModal(true)}
-                                style={{
-                                    background: 'white',
-                                    color: '#667eea',
-                                    border: 'none',
-                                    padding: '0.75rem 1.5rem',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontWeight: '600',
-                                    transition: 'all 0.3s ease'
-                                }}
-                            >
-                                <i className="fas fa-plus" style={{ marginRight: '0.5rem' }} />
-                                Add Class
-                            </button>
-                            <button
-                                onClick={() => navigate('/dashboard')}
-                                style={{
-                                    background: 'rgba(255, 255, 255, 0.2)',
-                                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                                    color: 'white',
-                                    padding: '0.75rem 1.5rem',
-                                    borderRadius: '8px',
-                                    cursor: 'pointer',
-                                    fontWeight: '600'
-                                }}
-                            >
-                                <i className="fas fa-arrow-left" style={{ marginRight: '0.5rem' }} />
-                                Back
-                            </button>
+        <ImmersiveLayout>
+            <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '1.5rem 2rem' }}>
+
+                {/* Top Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <button onClick={() => navigate('/dashboard')} style={{
+                            background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '10px', padding: '0.5rem 0.7rem', cursor: 'pointer', color: 'white',
+                        }}>
+                            <i className="fas fa-arrow-left" />
+                        </button>
+                        <div>
+                            <h2 style={{ fontSize: '1.3rem', fontWeight: '800', margin: 0, letterSpacing: '-0.3px' }}>Teaching Schedule</h2>
+                            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.35)', fontWeight: '500' }}>
+                                Manage your weekly classes
+                            </div>
                         </div>
                     </div>
+                    <button onClick={() => setShowAddModal(true)} style={{
+                        background: 'linear-gradient(135deg, #7c3aed, #a78bfa)', border: 'none',
+                        borderRadius: '10px', padding: '0.55rem 1.1rem', cursor: 'pointer', color: 'white',
+                        fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                        boxShadow: '0 4px 15px rgba(124,58,237,0.3)',
+                    }}>
+                        <i className="fas fa-plus" /> Add Class
+                    </button>
                 </div>
-            </div>
 
-            {/* Timetable Grid */}
-            <div style={{ maxWidth: '1400px', margin: '2rem auto', padding: '0 2rem' }}>
+                {/* Timetable Grid */}
                 <div style={{
-                    background: 'white',
-                    borderRadius: '16px',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
-                    overflow: 'hidden'
+                    background: 'rgba(255,255,255,0.03)', borderRadius: '16px',
+                    border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden',
                 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ background: '#f7fafc' }}>
-                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '700', color: '#2d3748', borderBottom: '2px solid #e2e8f0' }}>
-                                    Time
-                                </th>
-                                {dayNames.slice(1, 6).map(day => (
-                                    <th key={day} style={{ padding: '1rem', textAlign: 'center', fontWeight: '700', color: '#2d3748', borderBottom: '2px solid #e2e8f0' }}>
-                                        {day}
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                            <thead>
+                                <tr>
+                                    <th style={{
+                                        padding: '1rem 0.75rem', textAlign: 'left', fontWeight: '700',
+                                        color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', letterSpacing: '0.5px',
+                                        borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)',
+                                        width: '70px',
+                                    }}>
+                                        TIME
                                     </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {timeSlots.map((time, timeIdx) => (
-                                <tr key={time} style={{ borderBottom: '1px solid #f7fafc' }}>
-                                    <td style={{ padding: '1rem', fontWeight: '600', color: '#718096', background: '#f7fafc' }}>
-                                        {time}
-                                    </td>
-                                    {days.slice(1, 6).map((day, dayIdx) => {
-                                        const cls = getClassAtTime(day, time);
-                                        return (
-                                            <td key={day} style={{
-                                                padding: '0.5rem',
-                                                textAlign: 'center',
-                                                verticalAlign: 'top'
-                                            }}>
-                                                {cls ? (
-                                                    <div style={{
-                                                        background: `linear-gradient(135deg, ${getSubjectColor(cls.subject)}15, ${getSubjectColor(cls.subject)}25)`,
-                                                        border: `2px solid ${getSubjectColor(cls.subject)}`,
-                                                        borderRadius: '8px',
-                                                        padding: '0.75rem',
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s ease'
-                                                    }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.transform = 'scale(1.05)';
-                                                            e.currentTarget.style.boxShadow = `0 4px 12px ${getSubjectColor(cls.subject)}40`;
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.transform = 'scale(1)';
-                                                            e.currentTarget.style.boxShadow = 'none';
-                                                        }}>
-                                                        <p style={{ margin: 0, fontWeight: '700', fontSize: '0.875rem', color: '#2d3748' }}>
-                                                            {cls.class_id}{cls.section_id ? `-${cls.section_id}` : ''}
-                                                        </p>
-                                                        <p style={{ margin: '0.25rem 0', fontSize: '0.75rem', color: '#718096' }}>
-                                                            {cls.subject}
-                                                        </p>
-                                                        {cls.room_number && (
-                                                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#a0aec0' }}>
-                                                                Room {cls.room_number}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div style={{
-                                                        background: '#f7fafc',
-                                                        border: '2px dashed #e2e8f0',
-                                                        borderRadius: '8px',
-                                                        padding: '0.75rem',
-                                                        color: '#cbd5e0',
-                                                        fontSize: '0.75rem'
-                                                    }}>
-                                                        Free
-                                                    </div>
-                                                )}
-                                            </td>
-                                        );
-                                    })}
+                                    {dayAbbr.map(day => (
+                                        <th key={day} style={{
+                                            padding: '1rem 0.5rem', textAlign: 'center', fontWeight: '700',
+                                            color: 'rgba(255,255,255,0.5)', fontSize: '0.78rem', letterSpacing: '0.5px',
+                                            borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)',
+                                        }}>
+                                            {day.toUpperCase()}
+                                        </th>
+                                    ))}
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {timeSlots.map((time) => (
+                                    <tr key={time}>
+                                        <td style={{
+                                            padding: '0.75rem', fontWeight: '600', color: 'rgba(255,255,255,0.35)',
+                                            fontSize: '0.82rem', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                            background: 'rgba(255,255,255,0.015)', whiteSpace: 'nowrap',
+                                        }}>
+                                            {time}
+                                        </td>
+                                        {days.slice(0, 5).map((day) => {
+                                            const cls = getClassAtTime(day, time);
+                                            return (
+                                                <td key={day} style={{
+                                                    padding: '0.4rem', verticalAlign: 'top',
+                                                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                                }}>
+                                                    {cls ? (
+                                                        <div
+                                                            style={{
+                                                                background: `${getSubjectColor(cls.subject)}15`,
+                                                                borderLeft: `3px solid ${getSubjectColor(cls.subject)}`,
+                                                                borderRadius: '8px', padding: '0.6rem 0.7rem',
+                                                                cursor: 'pointer', transition: 'all 0.2s',
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.background = `${getSubjectColor(cls.subject)}25`;
+                                                                e.currentTarget.style.transform = 'scale(1.02)';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.background = `${getSubjectColor(cls.subject)}15`;
+                                                                e.currentTarget.style.transform = 'scale(1)';
+                                                            }}
+                                                        >
+                                                            <div style={{ fontWeight: '700', fontSize: '0.82rem', color: getSubjectColor(cls.subject), marginBottom: '0.15rem' }}>
+                                                                {cls.class_id}{cls.section_id ? `-${cls.section_id}` : ''}
+                                                            </div>
+                                                            <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginBottom: '0.1rem' }}>
+                                                                {cls.subject}
+                                                            </div>
+                                                            {cls.room_number && (
+                                                                <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>
+                                                                    Rm {cls.room_number}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{
+                                                            border: '1px dashed rgba(255,255,255,0.06)', borderRadius: '8px',
+                                                            padding: '0.6rem', textAlign: 'center', color: 'rgba(255,255,255,0.1)',
+                                                            fontSize: '0.72rem',
+                                                        }}>
+                                                            —
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+
+                {/* Empty State */}
+                {Object.values(schedule).every(d => !d || d.length === 0) && (
+                    <div style={{
+                        background: 'rgba(255,255,255,0.03)', borderRadius: '20px', padding: '3rem',
+                        textAlign: 'center', border: '1px solid rgba(255,255,255,0.06)', marginTop: '1.5rem',
+                    }}>
+                        <i className="fas fa-calendar-plus" style={{ fontSize: '2rem', color: 'rgba(255,255,255,0.15)', marginBottom: '0.75rem', display: 'block' }} />
+                        <h3 style={{ fontWeight: '700', fontSize: '1.1rem', marginBottom: '0.3rem' }}>No Classes Yet</h3>
+                        <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.85rem', margin: 0 }}>
+                            Click "Add Class" to start building your schedule.
+                        </p>
+                    </div>
+                )}
             </div>
 
             {/* Add Entry Modal */}
             {showAddModal && (
                 <>
-                    <div
-                        onClick={() => setShowAddModal(false)}
-                        style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            background: 'rgba(0, 0, 0, 0.5)',
-                            zIndex: 999
-                        }}
-                    />
+                    <div onClick={() => setShowAddModal(false)} style={{
+                        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+                        backdropFilter: 'blur(4px)', zIndex: 999,
+                    }} />
                     <div style={{
-                        position: 'fixed',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        background: 'white',
-                        borderRadius: '16px',
-                        padding: '2rem',
-                        width: '90%',
-                        maxWidth: '500px',
-                        zIndex: 1000,
-                        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+                        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                        background: 'linear-gradient(160deg, #1a1145 0%, #0d1b2a 100%)',
+                        borderRadius: '20px', padding: '2rem', width: '90%', maxWidth: '480px', zIndex: 1000,
+                        border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
                     }}>
-                        <h2 style={{ margin: '0 0 1.5rem 0', color: '#2d3748', fontSize: '1.5rem', fontWeight: '700' }}>
-                            Add Class to Schedule
-                        </h2>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                            <h3 style={{ margin: 0, fontWeight: '800', fontSize: '1.15rem' }}>Add Class</h3>
+                            <button onClick={() => setShowAddModal(false)} style={{
+                                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '8px', padding: '0.35rem 0.55rem', cursor: 'pointer', color: 'rgba(255,255,255,0.5)',
+                            }}>
+                                <i className="fas fa-times" />
+                            </button>
+                        </div>
 
-                        <div style={{ display: 'grid', gap: '1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                    Day
-                                </label>
-                                <select
-                                    value={newEntry.day_of_week}
-                                    onChange={(e) => setNewEntry({ ...newEntry, day_of_week: parseInt(e.target.value) })}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '2px solid #e2e8f0',
-                                        fontSize: '1rem'
-                                    }}
-                                >
-                                    {dayNames.slice(1, 6).map((day, idx) => (
-                                        <option key={day} value={idx + 1}>{day}</option>
+                                <label style={labelStyle}>Day</label>
+                                <select value={newEntry.day_of_week} onChange={(e) => setNewEntry({ ...newEntry, day_of_week: parseInt(e.target.value) })}
+                                    style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}>
+                                    {dayNames.slice(0, 5).map((day, idx) => (
+                                        <option key={day} value={idx + 1} style={{ background: '#1a1145', color: 'white' }}>{day}</option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                        Start Time
-                                    </label>
-                                    <input
-                                        type="time"
-                                        value={newEntry.start_time}
+                                    <label style={labelStyle}>Start Time</label>
+                                    <input type="time" value={newEntry.start_time}
                                         onChange={(e) => setNewEntry({ ...newEntry, start_time: e.target.value })}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            borderRadius: '8px',
-                                            border: '2px solid #e2e8f0',
-                                            fontSize: '1rem'
-                                        }}
-                                    />
+                                        style={inputStyle} />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                        End Time
-                                    </label>
-                                    <input
-                                        type="time"
-                                        value={newEntry.end_time}
+                                    <label style={labelStyle}>End Time</label>
+                                    <input type="time" value={newEntry.end_time}
                                         onChange={(e) => setNewEntry({ ...newEntry, end_time: e.target.value })}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            borderRadius: '8px',
-                                            border: '2px solid #e2e8f0',
-                                            fontSize: '1rem'
-                                        }}
-                                    />
+                                        style={inputStyle} />
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                        Class
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g., 10, 11, 12"
-                                        value={newEntry.class_id}
+                                    <label style={labelStyle}>Class</label>
+                                    <input type="text" placeholder="e.g., 10, 11, 12" value={newEntry.class_id}
                                         onChange={(e) => setNewEntry({ ...newEntry, class_id: e.target.value })}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            borderRadius: '8px',
-                                            border: '2px solid #e2e8f0',
-                                            fontSize: '1rem'
-                                        }}
-                                    />
+                                        style={inputStyle} />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                        Section
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="A, B"
-                                        value={newEntry.section_id}
+                                    <label style={labelStyle}>Section</label>
+                                    <input type="text" placeholder="A, B" value={newEntry.section_id}
                                         onChange={(e) => setNewEntry({ ...newEntry, section_id: e.target.value })}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            borderRadius: '8px',
-                                            border: '2px solid #e2e8f0',
-                                            fontSize: '1rem'
-                                        }}
-                                    />
+                                        style={inputStyle} />
                                 </div>
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                    Subject
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g., Mathematics"
-                                    value={newEntry.subject}
+                                <label style={labelStyle}>Subject</label>
+                                <input type="text" placeholder="e.g., Mathematics" value={newEntry.subject}
                                     onChange={(e) => setNewEntry({ ...newEntry, subject: e.target.value })}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '2px solid #e2e8f0',
-                                        fontSize: '1rem'
-                                    }}
-                                />
+                                    style={inputStyle} />
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', color: '#718096', fontSize: '0.875rem', fontWeight: '600' }}>
-                                    Room Number (Optional)
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="e.g., 201"
-                                    value={newEntry.room_number}
+                                <label style={labelStyle}>Room Number (Optional)</label>
+                                <input type="text" placeholder="e.g., 201" value={newEntry.room_number}
                                     onChange={(e) => setNewEntry({ ...newEntry, room_number: e.target.value })}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '2px solid #e2e8f0',
-                                        fontSize: '1rem'
-                                    }}
-                                />
+                                    style={inputStyle} />
                             </div>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                            <button
-                                onClick={handleAddEntry}
+                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+                            <button onClick={handleAddEntry}
                                 disabled={!newEntry.class_id || !newEntry.subject}
                                 style={{
-                                    flex: 1,
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                    color: 'white',
-                                    fontWeight: '600',
+                                    flex: 1, padding: '0.7rem', borderRadius: '10px', border: 'none',
+                                    background: newEntry.class_id && newEntry.subject
+                                        ? 'linear-gradient(135deg, #7c3aed, #a78bfa)' : 'rgba(255,255,255,0.06)',
+                                    color: 'white', fontWeight: '700', fontSize: '0.9rem',
                                     cursor: newEntry.class_id && newEntry.subject ? 'pointer' : 'not-allowed',
-                                    opacity: newEntry.class_id && newEntry.subject ? 1 : 0.5
-                                }}
-                            >
+                                    boxShadow: newEntry.class_id && newEntry.subject ? '0 4px 15px rgba(124,58,237,0.3)' : 'none',
+                                }}>
                                 Add to Schedule
                             </button>
-                            <button
-                                onClick={() => setShowAddModal(false)}
-                                style={{
-                                    flex: 1,
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    border: '2px solid #e2e8f0',
-                                    background: 'white',
-                                    color: '#718096',
-                                    fontWeight: '600',
-                                    cursor: 'pointer'
-                                }}
-                            >
+                            <button onClick={() => setShowAddModal(false)} style={{
+                                flex: 1, padding: '0.7rem', borderRadius: '10px', cursor: 'pointer',
+                                border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                                color: 'rgba(255,255,255,0.6)', fontWeight: '600', fontSize: '0.9rem',
+                            }}>
                                 Cancel
                             </button>
                         </div>
                     </div>
                 </>
             )}
-        </div>
+        </ImmersiveLayout>
     );
 };
 

@@ -7,9 +7,9 @@ const getAPIBaseURL = () => {
     return process.env.REACT_APP_API_URL;
   }
 
-  // If running on localhost, use localhost backend
+  // If running on localhost, use relative path (Flask serves both frontend & API on same port)
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return `http://${window.location.hostname}:5001/api`;
+    return '/api';
   }
 
   // Production: Use backend deployed on Render/Heroku/etc

@@ -11,14 +11,15 @@ export const useAuth = () => {
 };
 
 // Determine API base URL
+// In development, use CRA proxy (same-origin) to avoid cross-origin cookie issues
 const getAPIBaseURL = () => {
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
   }
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return `http://${window.location.hostname}:5001/api`;
+    return '/api';  // CRA proxy forwards to backend
   }
-  // For remote hosting, try to connect to backend on port 5001
+  // For remote hosting, connect to backend on port 5001
   return `${window.location.protocol}//${window.location.hostname}:5001/api`;
 };
 
@@ -31,19 +32,32 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuthStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/dashboard`, {
+      const response = await fetch(`${API_BASE}/user/profile`, {
         method: 'GET',
         credentials: 'include'
       });
 
-      if (response.ok || response.redirected) {
-        // Try to get user info from session if available
-        setIsAuthenticated(true);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.user) {
+          setIsAuthenticated(true);
+          setUser({
+            id: data.user.id,
+            username: data.user.username,
+            role: data.user.role || 'student',
+            student_class: data.user.student_class || null,
+          });
+        } else {
+          setIsAuthenticated(false);
+          setUser(null);
+        }
       } else {
         setIsAuthenticated(false);
+        setUser(null);
       }
     } catch (error) {
       setIsAuthenticated(false);
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -59,6 +73,7 @@ export const AuthProvider = ({ children }) => {
       // accept either `username` or `email` from the form
       const username = credentials.username || credentials.email;
       const password = credentials.password;
+      const role = credentials.role || 'student';
 
       const response = await fetch(`${API_BASE}/login`, {
         method: 'POST',
@@ -68,7 +83,8 @@ export const AuthProvider = ({ children }) => {
         credentials: 'include',
         body: JSON.stringify({
           username: username,
-          password: password
+          password: password,
+          role: role
         })
       });
 
@@ -96,15 +112,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const { email, password, confirm_password, student_class } = userData;
-
-      // Validate password match
-      if (password !== confirm_password) {
-        return {
-          success: false,
-          message: 'Passwords do not match'
-        };
-      }
+      const { username, email, password, confirm_password, role } = userData;
 
       // Validate password length
       if (password.length < 6) {
@@ -121,10 +129,11 @@ export const AuthProvider = ({ children }) => {
         },
         credentials: 'include',
         body: JSON.stringify({
-          username: email,
+          username: username || email,
+          email: email,
           password: password,
-          confirm_password: confirm_password,
-          student_class: student_class || null
+          confirm_password: confirm_password || password,
+          role: role || 'teacher'
         })
       });
 
@@ -132,8 +141,9 @@ export const AuthProvider = ({ children }) => {
 
       if (data.success) {
         setIsAuthenticated(true);
-        setUser({ username: email });
-        return { success: true, user: { username: email } };
+        const userRole = data.user?.role || role || 'teacher';
+        setUser({ username: username || email, role: userRole });
+        return { success: true, user: { username: username || email, role: userRole } };
       } else {
         return {
           success: false,

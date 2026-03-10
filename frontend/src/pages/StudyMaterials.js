@@ -116,8 +116,8 @@ const StudyMaterials = () => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
-      padding: '2rem'
+      background: 'linear-gradient(160deg, #0f0a1e 0%, #1a1145 40%, #0d1b2a 100%)',
+      padding: '1.5rem 2rem', color: 'white'
     }}>
       <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
@@ -128,30 +128,30 @@ const StudyMaterials = () => {
           <button
             onClick={() => window.location.href = '/dashboard'}
             style={{
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
               color: 'white',
-              padding: '0.75rem 1.5rem',
+              padding: '0.55rem 1.1rem',
               borderRadius: '10px',
-              fontSize: '1rem',
-              cursor: 'pointer'
+              fontSize: '0.85rem',
+              cursor: 'pointer', fontWeight: '600'
             }}
           >
-            <i className="fas fa-home" style={{ marginRight: '0.5rem' }} />
-            Home
+            <i className="fas fa-arrow-left" style={{ marginRight: '0.4rem' }} />
+            Back
           </button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: '2rem' }}>
           {/* Left Panel - Upload */}
           <div style={{
-            background: 'rgba(255, 255, 255, 0.1)',
+            background: 'rgba(255,255,255,0.03)',
             backdropFilter: 'blur(10px)',
-            borderRadius: '20px',
-            padding: '2rem',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
+            borderRadius: '16px',
+            padding: '1.75rem',
+            border: '1px solid rgba(255,255,255,0.06)'
           }}>
-            <h3 style={{ color: 'white', marginBottom: '1.5rem' }}>Upload Files</h3>
+            <h3 style={{ color: 'white', marginBottom: '1.25rem', fontWeight: '700', fontSize: '1rem' }}>Upload Files</h3>
 
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ color: 'white', display: 'block', marginBottom: '0.5rem' }}>Class</label>
@@ -160,15 +160,15 @@ const StudyMaterials = () => {
                 onChange={(e) => setSelectedClass(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '0.75rem',
+                  padding: '0.7rem 0.85rem',
                   borderRadius: '10px',
-                  border: 'none',
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  fontSize: '1rem'
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.04)',
+                  fontSize: '0.9rem', color: 'white', outline: 'none'
                 }}
               >
-                <option value="">Select Class</option>
-                {classes.map(cls => <option key={cls.id} value={cls.id}>{cls.name}</option>)}
+                <option value="" style={{ background: '#1a1145', color: 'white' }}>Select Class</option>
+                {classes.map(cls => <option key={cls.id} value={cls.id} style={{ background: '#1a1145', color: 'white' }}>{cls.name}</option>)}
               </select>
             </div>
 
@@ -179,15 +179,15 @@ const StudyMaterials = () => {
                 onChange={(e) => setSelectedSubject(e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '0.75rem',
+                  padding: '0.7rem 0.85rem',
                   borderRadius: '10px',
-                  border: 'none',
-                  background: 'rgba(255, 255, 255, 0.9)',
-                  fontSize: '1rem'
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'rgba(255,255,255,0.04)',
+                  fontSize: '0.9rem', color: 'white', outline: 'none'
                 }}
               >
-                <option value="">Select Subject</option>
-                {subjects.map(sub => <option key={sub.id} value={sub.name}>{sub.name}</option>)}
+                <option value="" style={{ background: '#1a1145', color: 'white' }}>Select Subject</option>
+                {subjects.map(sub => <option key={sub.id} value={sub.name} style={{ background: '#1a1145', color: 'white' }}>{sub.name}</option>)}
               </select>
             </div>
 
@@ -284,7 +284,7 @@ const StudyMaterials = () => {
                 padding: '1rem',
                 borderRadius: '10px',
                 border: 'none',
-                background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                background: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
                 color: 'white',
                 fontSize: '1.1rem',
                 fontWeight: '600',
@@ -299,13 +299,13 @@ const StudyMaterials = () => {
 
           {/* Right Panel - Materials List */}
           <div style={{
-            background: 'rgba(255, 255, 255, 0.1)',
+            background: 'rgba(255,255,255,0.03)',
             backdropFilter: 'blur(10px)',
-            borderRadius: '20px',
-            padding: '2rem',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
+            borderRadius: '16px',
+            padding: '1.75rem',
+            border: '1px solid rgba(255,255,255,0.06)'
           }}>
-            <h3 style={{ color: 'white', marginBottom: '1.5rem' }}>
+            <h3 style={{ color: 'white', marginBottom: '1.25rem', fontWeight: '700', fontSize: '1rem' }}>
               Uploaded Materials
               {selectedClass && selectedSubject && (
                 <span style={{ fontSize: '1rem', fontWeight: 'normal', marginLeft: '1rem' }}>

@@ -1,11 +1,10 @@
 """
-Teaching Module
+Vector Store Module
 
-This module implements the core teaching logic using RAG.
+This module manages the vector database for semantic search.
 
 Components:
-- Query processing
-- Context retrieval
-- Response generation
-- Conversation management
+- Embedding generation
+- Vector database operations (CRUD)
+- Similarity search
 """

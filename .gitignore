@@ -70,3 +70,31 @@ debug_dataset/
 .env
 .env.local
 .env.*.local
+# Project runtime data
+data/
+uploads/
+faces/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cookies / sessions
+cookies.txt
+
+# Large archives
+*.zip
+
+# Uploaded materials
+uploads/session_materials/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Backend build artifacts
+backend/__pycache__/
+
+# AI model / dataset cache
+vector_store/chroma/

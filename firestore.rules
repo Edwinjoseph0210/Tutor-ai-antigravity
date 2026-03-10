@@ -1,0 +1,163 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to get user role
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper function to get user ID
+    function isUser(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Helper function to check if user is teacher or admin
+    function isTeacherOrAdmin() {
+      let role = getUserRole();
+      return role == 'teacher' || role == 'admin';
+    }
+
+    // Helper function to check if user is student
+    function isStudent() {
+      return getUserRole() == 'student';
+    }
+
+    // Users collection - each user can read/write their own document
+    match /users/{userId} {
+      allow read: if isUser(userId) || isTeacherOrAdmin();
+      allow write: if isUser(userId) && (
+        request.resource.data.role == resource.data.role  // Cannot change own role
+      );
+      allow create: if isUser(userId) && request.resource.data.role in ['student', 'teacher', 'admin'];
+      
+      // User subcollections
+      match /{document=**} {
+        allow read: if isUser(userId);
+        allow write: if isUser(userId);
+      }
+    }
+
+    // Sessions collection - teachers create, students/teachers read their sessions
+    match /sessions/{sessionId} {
+      allow read: if request.auth != null && (
+        resource.data.teacherId == request.auth.uid ||
+        request.auth.uid in resource.data.studentIds ||
+        isTeacherOrAdmin()
+      );
+      allow create: if isTeacherOrAdmin() && request.resource.data.teacherId == request.auth.uid;
+      allow update: if (
+        resource.data.teacherId == request.auth.uid && isTeacherOrAdmin()
+      ) || (
+        request.auth.uid in resource.data.studentIds &&
+        request.resource.data.only(
+          ['attendanceMarked', 'questionAsked', 'materialDownloaded'],
+          ['studentId']
+        ).keys().size() > 0
+      );
+      allow delete: if resource.data.teacherId == request.auth.uid && isTeacherOrAdmin();
+
+      // Attendance logs subcollection
+      match /attendance/{attendanceId} {
+        allow read: if (
+          resource.data.teacherId == request.auth.uid ||
+          resource.data.studentId == request.auth.uid ||
+          isTeacherOrAdmin()
+        );
+        allow create: if request.auth != null && (
+          request.resource.data.teacherId == request.auth.uid ||
+          request.resource.data.studentId == request.auth.uid
+        );
+        allow update: if (
+          resource.data.teacherId == request.auth.uid ||
+          resource.data.studentId == request.auth.uid
+        ) && isStudent();
+      }
+
+      // Questions subcollection
+      match /questions/{questionId} {
+        allow read: if (
+          resource.data.studentId == request.auth.uid ||
+          resource.data.teacherId == request.auth.uid ||
+          isTeacherOrAdmin()
+        );
+        allow create: if request.auth != null && request.resource.data.studentId == request.auth.uid;
+        allow update: if (
+          resource.data.teacherId == request.auth.uid ||
+          request.auth.uid in resource.data.studentIds
+        ) && isTeacherOrAdmin();
+      }
+
+      // Materials subcollection
+      match /materials/{materialId} {
+        allow read: if (
+          resource.data.teacherId == request.auth.uid ||
+          request.auth.uid in resource.data.studentIds ||
+          isTeacherOrAdmin()
+        );
+        allow create: if isTeacherOrAdmin() && request.resource.data.teacherId == request.auth.uid;
+        allow update: if resource.data.teacherId == request.auth.uid && isTeacherOrAdmin();
+      }
+    }
+
+    // Materials collection - teachers create, students can read
+    match /materials/{materialId} {
+      allow read: if request.auth != null && (
+        resource.data.teacherId == request.auth.uid ||
+        resource.data.isPublic == true ||
+        isTeacherOrAdmin()
+      );
+      allow create: if isTeacherOrAdmin() && request.resource.data.teacherId == request.auth.uid;
+      allow update: if resource.data.teacherId == request.auth.uid && isTeacherOrAdmin();
+      allow delete: if resource.data.teacherId == request.auth.uid && isTeacherOrAdmin();
+    }
+
+    // Notifications collection - user-specific documents
+    match /notifications/{userId} {
+      allow read: if isUser(userId);
+      
+      match /notifications/{notificationId} {
+        allow read: if isUser(userId);
+        allow create: if request.auth != null;
+        allow update: if isUser(userId);
+        allow delete: if isUser(userId);
+      }
+    }
+
+    // Attendance logs collection
+    match /attendance_logs/{logId} {
+      allow read: if request.auth != null && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.teacherId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+      allow create: if request.auth != null && (
+        request.resource.data.studentId == request.auth.uid ||
+        request.resource.data.teacherId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+      allow update: if isTeacherOrAdmin();
+    }
+
+    // Q&A collection
+    match /qa_logs/{qaId} {
+      allow read: if request.auth != null && (
+        resource.data.studentId == request.auth.uid ||
+        resource.data.teacherId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+      allow create: if request.auth != null && (
+        request.resource.data.studentId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+      allow update: if (
+        resource.data.teacherId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+    }
+
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -450,3 +450,99 @@
     padding: 30px 20px;
   }
 }
+
+/* --- Register Link --- */
+.register-link-section {
+  text-align: center;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.register-link-section p {
+  color: #a0aec0;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.register-link {
+  color: var(--accent-color);
+  text-decoration: none;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.register-link:hover {
+  color: white;
+  text-decoration: underline;
+}
+
+/* --- Select Group --- */
+.select-group {
+  position: relative;
+  margin-bottom: 5px;
+}
+
+.select-group select {
+  width: 100%;
+  padding: 16px 16px 16px 45px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: white;
+  font-size: 15px;
+  outline: none;
+  transition: all 0.3s ease;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.select-group select option {
+  background: #1a202c;
+  color: white;
+}
+
+.select-group label {
+  position: absolute;
+  left: 45px;
+  top: -10px;
+  font-size: 12px;
+  color: var(--primary-color);
+  background: var(--bg-dark);
+  padding: 0 6px;
+  border-radius: 4px;
+}
+
+.select-group .input-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.select-group .select-arrow {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* --- Success Message --- */
+.success-message {
+  background: rgba(72, 187, 120, 0.15);
+  border: 1px solid rgba(72, 187, 120, 0.3);
+  color: #9ae6b4;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

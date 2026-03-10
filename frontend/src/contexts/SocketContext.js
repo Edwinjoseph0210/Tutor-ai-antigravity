@@ -8,8 +8,8 @@ const getBackendUrl = () => {
 
     // If running on localhost or local network IP
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
-        // Return current hostname - flexible for both local and LAN
-        return `http://${hostname}:5001`;
+        // Use same origin - Flask serves both frontend & API on same port
+        return window.location.origin;
     }
 
     // Production URL (fallback)

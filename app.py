@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, session, redirect, url_for, send_from_directory
+from flask import Flask, request, jsonify, session, redirect, url_for, send_from_directory, Response
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -44,6 +44,7 @@ except OSError:
 import hashlib
 import pathlib
 import senku_bridge
+import senku_teaching
 
 # Load environment variables
 load_dotenv()
@@ -93,7 +94,9 @@ except Exception as e:
 
 
 
-app = Flask(__name__)
+# Serve React build from frontend/build
+REACT_BUILD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'frontend', 'build')
+app = Flask(__name__, static_folder=os.path.join(REACT_BUILD_DIR, 'static'), static_url_path='/static')
 app.secret_key = 'your-secret-key-change-this-in-production'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 # For local development we allow cross-origin cookies (CRA dev server -> Flask on different port)
@@ -101,9 +104,12 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = None
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 CORS(app, supports_credentials=True, origins=[
     'http://localhost:3000', 
     'http://127.0.0.1:3000',
+    'http://localhost:5001',
+    'http://127.0.0.1:5001',
     'https://ai-tutor-94ff4.web.app',
     'https://aitutor-team.web.app',
     'https://tutor-ai-antigravity.vercel.app'
@@ -115,6 +121,8 @@ socketio = SocketIO(
     cors_allowed_origins=[
         'http://localhost:3000',
         'http://127.0.0.1:3000',
+        'http://localhost:5001',
+        'http://127.0.0.1:5001',
         'https://ai-tutor-94ff4.web.app',
         'https://aitutor-team.web.app',
         'https://tutor-ai-antigravity.vercel.app'
@@ -212,16 +220,30 @@ def init_auth_db():
             username TEXT UNIQUE,
             password_hash TEXT,
             role TEXT DEFAULT 'admin',
-            student_class TEXT
+            student_class TEXT,
+            email TEXT DEFAULT '',
+            roll_no TEXT DEFAULT '',
+            full_name TEXT DEFAULT ''
         )
     ''')
+    # Add columns if they don't exist (migration for existing DBs)
+    for col, col_type in [('email', 'TEXT DEFAULT ""'), ('roll_no', 'TEXT DEFAULT ""'), ('full_name', 'TEXT DEFAULT ""')]:
+        try:
+            cur.execute(f'ALTER TABLE users ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     
     # Create default admin user if not exists
     cur.execute('SELECT COUNT(*) FROM users')
     if cur.fetchone()[0] == 0:
-        default_password = generate_password_hash('admin123')
+        default_admin_password = generate_password_hash('admin123')
         cur.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', 
-                   ('admin', default_password, 'admin'))
+                   ('admin', default_admin_password, 'admin'))
+        
+        # Create demo student user
+        default_student_password = generate_password_hash('student123')
+        cur.execute('INSERT INTO users (username, password_hash, role, student_class) VALUES (?, ?, ?, ?)', 
+                   ('student1', default_student_password, 'student', '10'))
     
     conn.commit()
     conn.close()
@@ -1348,8 +1370,10 @@ def cancel_scheduled_lecture(schedule_id):
 def register():
     data = request.get_json()
     username = data.get('username')
+    email = data.get('email', '')
     password = data.get('password')
-    confirm_password = data.get('confirm_password')
+    confirm_password = data.get('confirm_password', password)
+    role = data.get('role', 'teacher')  # Default to teacher for self-registration
     student_class = data.get('student_class')
     
     if not username or not password:
@@ -1361,6 +1385,10 @@ def register():
     if len(password) < 6:
         return jsonify({'success': False, 'message': 'Password must be at least 6 characters long'}), 400
     
+    # Validate role
+    if role not in ['teacher', 'student']:
+        return jsonify({'success': False, 'message': 'Invalid role selected'}), 400
+    
     try:
         conn = sqlite3.connect('auth.db')
         cur = conn.cursor()
@@ -1371,10 +1399,10 @@ def register():
             conn.close()
             return jsonify({'success': False, 'message': 'Username already exists'}), 400
         
-        # Create new user with student role
+        # Create new user with selected role
         password_hash = generate_password_hash(password)
         cur.execute('INSERT INTO users (username, password_hash, role, student_class) VALUES (?, ?, ?, ?)', 
-               (username, password_hash, 'student', student_class))
+               (username, password_hash, role, student_class))
         conn.commit()
         
         # Get the created user's ID
@@ -1385,7 +1413,7 @@ def register():
         session['user_id'] = user_id
         session['username'] = username
         session['student_class'] = student_class
-        session['role'] = 'student'
+        session['role'] = role
         session.permanent = True
         
         return jsonify({
@@ -1394,8 +1422,9 @@ def register():
             'user': {
                 'id': user_id,
                 'username': username,
+                'email': email,
                 'student_class': student_class,
-                'role': 'student'
+                'role': role
             }
         })
     except Exception as e:
@@ -1409,13 +1438,16 @@ def login():
     
     conn = sqlite3.connect('auth.db')
     cur = conn.cursor()
-    # Select id, password_hash, student_class, role
     cur.execute('SELECT id, password_hash, student_class, role FROM users WHERE username = ?', (username,))
     user = cur.fetchone()
     conn.close()
 
     if user and check_password_hash(user[1], password):
-        user_role = user[3] if user[3] else 'teacher'  # Default to teacher for backward compatibility
+        user_role = user[3] if user[3] else 'teacher'
+        # Treat admin as teacher
+        if user_role == 'admin':
+            user_role = 'teacher'
+        
         session['user_id'] = user[0]
         session['username'] = username
         session['student_class'] = user[2]
@@ -1454,8 +1486,1277 @@ def get_user_profile():
     })
 
 # ============================================================================
-# STUDENT-SPECIFIC ENDPOINTS (Read-Only)
+# SESSION MANAGEMENT ENDPOINTS (Teacher)
 # ============================================================================
+
+def init_sessions_db():
+    """Initialize sessions management database tables"""
+    conn = sqlite3.connect('auth.db')
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS teaching_sessions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_name TEXT NOT NULL,
+            subject TEXT,
+            class_name TEXT,
+            teacher_id INTEGER,
+            status TEXT DEFAULT 'created',
+            start_time TEXT,
+            duration INTEGER,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            ended_at TEXT,
+            FOREIGN KEY(teacher_id) REFERENCES users(id)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS session_materials(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            filename TEXT,
+            filepath TEXT,
+            file_text TEXT,
+            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(session_id) REFERENCES teaching_sessions(id)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS session_lectures(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            material_id INTEGER,
+            title TEXT NOT NULL,
+            content TEXT,
+            order_index INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(session_id) REFERENCES teaching_sessions(id),
+            FOREIGN KEY(material_id) REFERENCES session_materials(id)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS session_attendance(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            student_id INTEGER,
+            status TEXT DEFAULT 'absent',
+            marked_at TEXT,
+            FOREIGN KEY(session_id) REFERENCES teaching_sessions(id),
+            FOREIGN KEY(student_id) REFERENCES users(id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+@app.route('/api/sessions', methods=['GET'])
+@login_required
+def get_sessions():
+    """Get all sessions for the logged-in teacher"""
+    try:
+        teacher_id = session.get('user_id')
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        # Ensure scheduled_time column exists
+        try:
+            cur.execute('ALTER TABLE teaching_sessions ADD COLUMN scheduled_time TEXT')
+            conn.commit()
+        except:
+            pass
+        
+        cur.execute('''
+            SELECT id, session_name, subject, class_name, status, start_time, duration, created_at, ended_at, scheduled_time
+            FROM teaching_sessions
+            WHERE teacher_id = ?
+            ORDER BY created_at DESC
+        ''', (teacher_id,))
+        rows = cur.fetchall()
+        
+        sessions_list = []
+        for row in rows:
+            sid = row[0]
+            # Count materials
+            cur.execute('SELECT COUNT(*) FROM session_materials WHERE session_id = ?', (sid,))
+            mat_count = cur.fetchone()[0]
+            # Count lectures
+            try:
+                cur.execute('SELECT COUNT(*) FROM session_lectures WHERE session_id = ?', (sid,))
+                lec_count = cur.fetchone()[0]
+            except Exception:
+                lec_count = 0
+            # Count attendance
+            try:
+                cur.execute('SELECT COUNT(*), SUM(CASE WHEN status=\'present\' THEN 1 ELSE 0 END) FROM session_attendance WHERE session_id = ?', (sid,))
+                att_row = cur.fetchone()
+                att_total = att_row[0] if att_row else 0
+                att_present = att_row[1] if att_row and att_row[1] else 0
+            except:
+                att_total = 0
+                att_present = 0
+            sessions_list.append({
+                'id': sid,
+                'session_name': row[1],
+                'subject': row[2],
+                'class_name': row[3],
+                'status': row[4],
+                'start_time': row[5],
+                'duration': row[6],
+                'created_at': row[7],
+                'ended_at': row[8],
+                'scheduled_time': row[9],
+                'material_count': mat_count,
+                'lecture_count': lec_count,
+                'attendance_total': att_total,
+                'attendance_present': att_present
+            })
+        
+        conn.close()
+        return jsonify({'success': True, 'data': sessions_list})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions', methods=['POST'])
+@login_required
+def create_session():
+    """Create a new teaching session"""
+    try:
+        data = request.get_json()
+        session_name = data.get('session_name')
+        subject = data.get('subject', '')
+        class_name = data.get('class_name', '')
+        teacher_id = session.get('user_id')
+        
+        if not session_name:
+            return jsonify({'success': False, 'message': 'Session name is required'}), 400
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO teaching_sessions (session_name, subject, class_name, teacher_id, status)
+            VALUES (?, ?, ?, ?, 'created')
+        ''', (session_name, subject, class_name, teacher_id))
+        conn.commit()
+        session_id = cur.lastrowid
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Session created successfully',
+            'data': {'id': session_id, 'session_name': session_name}
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>', methods=['DELETE'])
+@login_required
+def delete_session(session_id):
+    """Delete a teaching session"""
+    try:
+        teacher_id = session.get('user_id')
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('DELETE FROM teaching_sessions WHERE id = ? AND teacher_id = ?', (session_id, teacher_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Session deleted successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>/schedule', methods=['POST'])
+@login_required
+def schedule_session(session_id):
+    """Schedule a teaching session for a specific time"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        scheduled_time = data.get('scheduled_time')
+        if not scheduled_time:
+            return jsonify({'success': False, 'message': 'scheduled_time is required'}), 400
+        
+        teacher_id = session.get('user_id')
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        # Add scheduled_time column if not exists
+        try:
+            cur.execute('ALTER TABLE teaching_sessions ADD COLUMN scheduled_time TEXT')
+            conn.commit()
+        except:
+            pass
+        
+        cur.execute('''
+            UPDATE teaching_sessions 
+            SET status = 'scheduled', scheduled_time = ?
+            WHERE id = ? AND teacher_id = ?
+        ''', (scheduled_time, session_id, teacher_id))
+        
+        if cur.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Session not found or access denied'}), 404
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': f'Session scheduled for {scheduled_time}'})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>/start', methods=['POST'])
+@login_required
+def start_session(session_id):
+    """Start a teaching session (Take Class) - marks as active and takes attendance"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        start_time = data.get('start_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        teacher_id = session.get('user_id')
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        # Update session status to active
+        cur.execute('''
+            UPDATE teaching_sessions 
+            SET status = 'active', start_time = ?
+            WHERE id = ? AND teacher_id = ?
+        ''', (start_time, session_id, teacher_id))
+        
+        if cur.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Session not found or access denied'}), 404
+        
+        # Get session details for attendance
+        cur.execute('SELECT class_name FROM teaching_sessions WHERE id = ?', (session_id,))
+        row = cur.fetchone()
+        class_name = row[0] if row else None
+        
+        # Auto-populate attendance records for students in this class
+        if class_name:
+            cur.execute('''
+                SELECT id FROM users WHERE role = 'student' AND student_class = ?
+            ''', (class_name,))
+        else:
+            cur.execute("SELECT id FROM users WHERE role = 'student'")
+        
+        student_rows = cur.fetchall()
+        marked_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        for srow in student_rows:
+            student_id = srow[0]
+            cur.execute('''
+                SELECT id FROM session_attendance WHERE session_id = ? AND student_id = ?
+            ''', (session_id, student_id))
+            if not cur.fetchone():
+                cur.execute('''
+                    INSERT INTO session_attendance (session_id, student_id, status, marked_at)
+                    VALUES (?, ?, 'absent', ?)
+                ''', (session_id, student_id, marked_at))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Session started successfully', 'student_count': len(student_rows)})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>/end', methods=['POST'])
+@login_required
+def end_session(session_id):
+    """End a teaching session"""
+    try:
+        teacher_id = session.get('user_id')
+        ended_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            UPDATE teaching_sessions 
+            SET status = 'completed', ended_at = ?
+            WHERE id = ? AND teacher_id = ?
+        ''', (ended_at, session_id, teacher_id))
+        
+        if cur.rowcount == 0:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Session not found or access denied'}), 404
+        
+        # Get attendance summary
+        cur.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present
+            FROM session_attendance WHERE session_id = ?
+        ''', (session_id,))
+        att_row = cur.fetchone()
+        total = att_row[0] if att_row else 0
+        present = att_row[1] if att_row else 0
+            
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Session ended successfully',
+            'attendance_summary': {'total': total, 'present': present, 'absent': total - present}
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/active', methods=['GET'])
+@login_required
+def get_active_sessions():
+    """Get all active/scheduled/created sessions (for students to see upcoming/active classes)"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        # Ensure scheduled_time column exists
+        try:
+            cur.execute('ALTER TABLE teaching_sessions ADD COLUMN scheduled_time TEXT')
+            conn.commit()
+        except:
+            pass
+        
+        cur.execute('''
+            SELECT ts.id, ts.session_name, ts.subject, ts.class_name, ts.status, 
+                   ts.start_time, ts.duration, ts.created_at, u.username as teacher_name,
+                   ts.scheduled_time
+            FROM teaching_sessions ts
+            JOIN users u ON ts.teacher_id = u.id
+            WHERE ts.status IN ('active', 'scheduled', 'created')
+            ORDER BY 
+                CASE ts.status 
+                    WHEN 'active' THEN 0 
+                    WHEN 'scheduled' THEN 1 
+                    ELSE 2 
+                END,
+                ts.scheduled_time ASC,
+                ts.created_at DESC
+        ''')
+        rows = cur.fetchall()
+        
+        sessions_list = []
+        for row in rows:
+            sid = row[0]
+            try:
+                cur.execute('SELECT COUNT(*) FROM session_lectures WHERE session_id = ?', (sid,))
+                lec_count = cur.fetchone()[0]
+            except Exception:
+                lec_count = 0
+            sessions_list.append({
+                'id': sid,
+                'session_name': row[1],
+                'subject': row[2],
+                'class_name': row[3],
+                'status': row[4],
+                'start_time': row[5],
+                'duration': row[6],
+                'created_at': row[7],
+                'teacher_name': row[8],
+                'scheduled_time': row[9],
+                'lecture_count': lec_count
+            })
+        
+        conn.close()
+        return jsonify({'success': True, 'data': sessions_list})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/completed', methods=['GET'])
+@login_required
+def get_completed_sessions():
+    """Get all completed sessions"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT ts.id, ts.session_name, ts.subject, ts.class_name, ts.status, 
+                   ts.start_time, ts.duration, ts.created_at, ts.ended_at, u.username as teacher_name
+            FROM teaching_sessions ts
+            JOIN users u ON ts.teacher_id = u.id
+            WHERE ts.status = 'completed'
+            ORDER BY ts.ended_at DESC
+        ''')
+        rows = cur.fetchall()
+        
+        sessions_list = []
+        for row in rows:
+            sid = row[0]
+            try:
+                cur.execute('SELECT COUNT(*) FROM session_lectures WHERE session_id = ?', (sid,))
+                lec_count = cur.fetchone()[0]
+            except Exception:
+                lec_count = 0
+            sessions_list.append({
+                'id': sid,
+                'session_name': row[1],
+                'subject': row[2],
+                'class_name': row[3],
+                'status': row[4],
+                'start_time': row[5],
+                'duration': row[6],
+                'created_at': row[7],
+                'ended_at': row[8],
+                'teacher_name': row[9],
+                'lecture_count': lec_count
+            })
+        
+        conn.close()
+        return jsonify({'success': True, 'data': sessions_list})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:session_id>/attendance', methods=['GET'])
+@login_required
+def get_session_attendance(session_id):
+    """Get attendance for a specific session"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT sa.student_id, u.username, sa.status, sa.marked_at
+            FROM session_attendance sa
+            JOIN users u ON sa.student_id = u.id
+            WHERE sa.session_id = ?
+            ORDER BY u.username
+        ''', (session_id,))
+        rows = cur.fetchall()
+        conn.close()
+        
+        attendance_list = []
+        for row in rows:
+            attendance_list.append({
+                'id': row[0],
+                'student_name': row[1],
+                'status': row[2],
+                'marked_at': row[3]
+            })
+        
+        return jsonify({'success': True, 'data': attendance_list})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:sess_id>/attendance', methods=['POST'])
+@login_required
+def mark_session_attendance(sess_id):
+    """Mark attendance for students in a session"""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        student_ids = data.get('student_ids', [])
+        status = data.get('status', 'present')
+        marked_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        for student_id in student_ids:
+            # Check if attendance already exists
+            cur.execute('''
+                SELECT id FROM session_attendance WHERE session_id = ? AND student_id = ?
+            ''', (sess_id, student_id))
+            existing = cur.fetchone()
+            
+            if existing:
+                cur.execute('''
+                    UPDATE session_attendance SET status = ?, marked_at = ?
+                    WHERE session_id = ? AND student_id = ?
+                ''', (status, marked_at, sess_id, student_id))
+            else:
+                cur.execute('''
+                    INSERT INTO session_attendance (session_id, student_id, status, marked_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (sess_id, student_id, status, marked_at))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Attendance marked successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sessions/<int:sess_id>/verify-attendance', methods=['POST'])
+@login_required
+def verify_face_attendance(sess_id):
+    """Verify student identity via face recognition and mark attendance for a session.
+    
+    Accepts a base64-encoded image, runs face recognition, checks if the
+    recognised name matches the logged-in student, and marks them present.
+    """
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        image_data = data.get('image')
+        if not image_data:
+            return jsonify({'success': False, 'message': 'No image data provided'}), 400
+
+        student_id = session.get('user_id')
+        username = session.get('username', '')
+
+        # ── 1. Decode image ────────────────────────────────────────
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(image_bytes))
+        rgb_image = np.array(image)
+
+        if len(rgb_image.shape) == 2:
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_GRAY2RGB)
+        elif rgb_image.shape[2] == 4:
+            rgb_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGBA2RGB)
+
+        # Resize for speed
+        height, width = rgb_image.shape[:2]
+        if width > 960:
+            scale = 960 / width
+            rgb_image = cv2.resize(rgb_image, (int(width * scale), int(height * scale)))
+
+        # ── 2. Face recognition ────────────────────────────────────
+        if not face_recognition_available:
+            # Fallback: mark present without face check
+            _mark_student_present(sess_id, student_id)
+            return jsonify({
+                'success': True,
+                'verified': True,
+                'name': username,
+                'confidence': 'N/A (face_recognition unavailable)',
+                'message': 'Attendance marked (face recognition unavailable)'
+            })
+
+        face_locations = face_recognition.face_locations(rgb_image, model='hog', number_of_times_to_upsample=1)
+        if not face_locations:
+            return jsonify({'success': False, 'verified': False, 'message': 'No face detected. Please ensure your face is clearly visible.'}), 400
+
+        face_encodings = face_recognition.face_encodings(rgb_image, face_locations, num_jitters=1)
+        if not face_encodings:
+            return jsonify({'success': False, 'verified': False, 'message': 'Could not encode face. Try again.'}), 400
+
+        # Use only the first (largest / closest) face
+        face_encoding = face_encodings[0]
+
+        loc_known_encodings = emotion_detector.known_face_encodings if hasattr(emotion_detector, 'known_face_encodings') else []
+        loc_known_names = emotion_detector.known_face_names if hasattr(emotion_detector, 'known_face_names') else []
+
+        if not loc_known_encodings:
+            # No training data – fallback
+            _mark_student_present(sess_id, student_id)
+            return jsonify({
+                'success': True, 'verified': True, 'name': username,
+                'confidence': 'N/A (no face data loaded)',
+                'message': 'Attendance marked (no face data)'
+            })
+
+        face_distances = face_recognition.face_distance(loc_known_encodings, face_encoding)
+        best_idx = np.argmin(face_distances)
+        best_distance = face_distances[best_idx]
+
+        recognised_name = None
+        confidence_str = '0%'
+
+        if best_distance < 0.50:
+            candidate = loc_known_names[best_idx]
+            # Pick lowest distance among all encodings for this person
+            person_dists = [face_distances[i] for i, n in enumerate(loc_known_names) if n == candidate]
+            best_person_dist = min(person_dists) if person_dists else best_distance
+
+            range_val = (1.0 - 0.50)
+            linear_val = (1.0 - best_person_dist) / (range_val * 2.0)
+            if best_person_dist > 0.50:
+                conf_value = round(linear_val * 100, 2)
+            else:
+                conf_value = round((linear_val + ((1.0 - linear_val) * pow((linear_val - 0.5) * 2, 0.2))) * 100, 2)
+
+            if conf_value >= 70.0:
+                recognised_name = candidate
+                confidence_str = f'{conf_value}%'
+
+        # ── 3. Verify identity match ──────────────────────────────
+        if not recognised_name:
+            return jsonify({
+                'success': False, 'verified': False,
+                'message': 'Face not recognised. Please try again with better lighting.'
+            }), 400
+
+        # Case-insensitive comparison (face folder name vs login username)
+        name_match = (recognised_name.strip().lower() == username.strip().lower())
+        if not name_match:
+            return jsonify({
+                'success': False, 'verified': False,
+                'recognised_as': recognised_name,
+                'message': f'Face recognised as "{recognised_name}", but you are logged in as "{username}". Identity mismatch.'
+            }), 403
+
+        # ── 4. Mark attendance ─────────────────────────────────────
+        _mark_student_present(sess_id, student_id)
+
+        return jsonify({
+            'success': True, 'verified': True,
+            'name': recognised_name, 'confidence': confidence_str,
+            'message': f'Welcome {recognised_name}! Attendance marked as present.'
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+def _mark_student_present(session_id, student_id):
+    """Helper: upsert attendance as present for a student in a session."""
+    marked_at = datetime.now().strftime('%Y-%m-%d %H:%M')
+    conn = sqlite3.connect('auth.db')
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM session_attendance WHERE session_id = ? AND student_id = ?',
+                (session_id, student_id))
+    existing = cur.fetchone()
+    if existing:
+        cur.execute('UPDATE session_attendance SET status = ?, marked_at = ? WHERE session_id = ? AND student_id = ?',
+                    ('present', marked_at, session_id, student_id))
+    else:
+        cur.execute('INSERT INTO session_attendance (session_id, student_id, status, marked_at) VALUES (?, ?, ?, ?)',
+                    (session_id, student_id, 'present', marked_at))
+    conn.commit()
+    conn.close()
+
+@app.route('/api/student/session-attendance', methods=['GET'])
+@login_required
+def get_student_session_attendance():
+    """Get attendance for the logged-in student across all sessions"""
+    try:
+        student_id = session.get('user_id')
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT ts.id, ts.session_name, ts.subject, ts.class_name, 
+                   sa.status, sa.marked_at, ts.start_time, u.username as teacher_name
+            FROM session_attendance sa
+            JOIN teaching_sessions ts ON sa.session_id = ts.id
+            JOIN users u ON ts.teacher_id = u.id
+            WHERE sa.student_id = ?
+            ORDER BY ts.start_time DESC
+        ''', (student_id,))
+        rows = cur.fetchall()
+        conn.close()
+        
+        records = []
+        for row in rows:
+            records.append({
+                'session_id': row[0],
+                'session_name': row[1],
+                'subject': row[2],
+                'class_name': row[3],
+                'status': row[4],
+                'marked_at': row[5],
+                'start_time': row[6],
+                'teacher_name': row[7]
+            })
+        
+        attended = [r for r in records if r['status'] == 'present']
+        absent = [r for r in records if r['status'] != 'present']
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'records': records,
+                'attended': attended,
+                'absent': absent,
+                'total': len(records),
+                'present_count': len(attended),
+                'absent_count': len(absent),
+                'percentage': round(len(attended) / len(records) * 100, 1) if records else 0
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ============================================================================
+# SESSION MATERIALS & LECTURE GENERATION APIs
+# ============================================================================
+
+@app.route('/api/sessions/<int:session_id>/materials', methods=['GET'])
+@login_required
+def get_session_materials(session_id):
+    """Get uploaded materials for a session"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT id, filename, uploaded_at FROM session_materials
+            WHERE session_id = ? ORDER BY uploaded_at DESC
+        ''', (session_id,))
+        rows = cur.fetchall()
+        conn.close()
+        return jsonify({'success': True, 'data': [
+            {'id': r[0], 'filename': r[1], 'uploaded_at': r[2]} for r in rows
+        ]})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/sessions/<int:session_id>/materials/upload', methods=['POST'])
+@login_required
+def upload_session_materials(session_id):
+    """Upload study materials to a session and extract text"""
+    try:
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'message': 'No files provided'}), 400
+
+        files = request.files.getlist('files')
+        upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'session_materials')
+        os.makedirs(upload_dir, exist_ok=True)
+
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+
+        # Ensure file_text column exists (migration-safe)
+        try:
+            cur.execute('SELECT file_text FROM session_materials LIMIT 0')
+        except Exception:
+            cur.execute('ALTER TABLE session_materials ADD COLUMN file_text TEXT')
+
+        uploaded = []
+        for file in files:
+            if not file.filename:
+                continue
+            filename = file.filename
+            filepath = os.path.join(upload_dir, f"{session_id}_{filename}")
+            file.save(filepath)
+
+            # Extract text
+            extracted_text = ''
+            if extract_text_from_file:
+                extracted_text = extract_text_from_file(filepath) or ''
+
+            cur.execute('''
+                INSERT INTO session_materials (session_id, filename, filepath, file_text, uploaded_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (session_id, filename, filepath, extracted_text,
+                  datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            uploaded.append({'id': cur.lastrowid, 'filename': filename,
+                             'has_text': len(extracted_text) > 50})
+
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': f'Uploaded {len(uploaded)} file(s)',
+                        'data': uploaded})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/sessions/<int:session_id>/generate-lectures', methods=['POST'])
+@login_required
+def generate_session_lectures(session_id):
+    """Generate lecture content from all uploaded session materials"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+
+        # Ensure session_lectures table exists
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS session_lectures(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                material_id INTEGER,
+                title TEXT NOT NULL,
+                content TEXT,
+                order_index INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES teaching_sessions(id),
+                FOREIGN KEY(material_id) REFERENCES session_materials(id)
+            )
+        ''')
+
+        # Get all materials for this session
+        cur.execute('SELECT id, filename, file_text FROM session_materials WHERE session_id = ?',
+                    (session_id,))
+        materials = cur.fetchall()
+
+        if not materials:
+            conn.close()
+            return jsonify({'success': False, 'message': 'No materials uploaded for this session'}), 400
+
+        # Delete previous lectures for this session (regenerate)
+        cur.execute('DELETE FROM session_lectures WHERE session_id = ?', (session_id,))
+
+        generated = []
+        order = 0
+
+        for mat_id, filename, file_text in materials:
+            if not file_text or len(file_text) < 50:
+                # Create a placeholder lecture for files with no text
+                order += 1
+                cur.execute('''
+                    INSERT INTO session_lectures (session_id, material_id, title, content, order_index)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, mat_id,
+                      f'Material: {filename}',
+                      f'The uploaded file "{filename}" could not be processed for text extraction. '
+                      'Please ensure the file contains readable text content.',
+                      order))
+                generated.append({'title': f'Material: {filename}', 'status': 'no_text'})
+                continue
+
+            # Use Gemini AI to generate structured lecture(s)
+            if gemini_available:
+                try:
+                    model = genai.GenerativeModel('gemini-pro')
+                    # Limit text length for API
+                    text_sample = file_text[:40000] if len(file_text) > 40000 else file_text
+
+                    prompt = f"""You are an expert teacher. Given the following study material, create structured lecture notes that students can study from.
+
+Study Material Content:
+{text_sample}
+
+Create 1-3 lecture sections (depending on the amount of content). For each section provide:
+- A clear title
+- Well-organized lecture content with:
+  * Introduction / Overview
+  * Key Concepts explained clearly
+  * Examples where relevant
+  * Summary / Key Takeaways
+
+IMPORTANT: Base your lectures ONLY on the provided material. Do NOT add external information.
+
+Return ONLY valid JSON in this exact format:
+{{
+  "lectures": [
+    {{
+      "title": "Lecture Title",
+      "content": "Full lecture content in markdown format with ## headings, bullet points etc."
+    }}
+  ]
+}}"""
+
+                    response = model.generate_content(prompt)
+                    response_text = response.text.strip()
+
+                    # Clean markdown code blocks
+                    if response_text.startswith('```'):
+                        response_text = response_text.split('```')[1]
+                        if response_text.startswith('json'):
+                            response_text = response_text[4:]
+                    if response_text.endswith('```'):
+                        response_text = response_text[:-3]
+
+                    import json as json_module
+                    result = json_module.loads(response_text.strip())
+                    lectures_data = result.get('lectures', [])
+
+                    for lec in lectures_data:
+                        order += 1
+                        cur.execute('''
+                            INSERT INTO session_lectures (session_id, material_id, title, content, order_index)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (session_id, mat_id, lec.get('title', f'Lecture {order}'),
+                              lec.get('content', ''), order))
+                        generated.append({'title': lec.get('title', ''), 'status': 'ai_generated'})
+
+                except Exception as e:
+                    print(f"Gemini lecture generation error: {e}")
+                    # Fallback
+                    order += 1
+                    cleaned = clean_lecture_content(file_text) if file_text else 'No content available.'
+                    cur.execute('''
+                        INSERT INTO session_lectures (session_id, material_id, title, content, order_index)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (session_id, mat_id, f'Lecture: {filename}', cleaned, order))
+                    generated.append({'title': f'Lecture: {filename}', 'status': 'fallback'})
+            else:
+                # No AI — use cleaned text directly
+                order += 1
+                cleaned = clean_lecture_content(file_text) if file_text else 'No content available.'
+                final_content = (f"## {filename}\n\n{cleaned}\n\n---\n"
+                                 f"*Generated from uploaded study material.*")
+                cur.execute('''
+                    INSERT INTO session_lectures (session_id, material_id, title, content, order_index)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, mat_id, f'Lecture: {filename}', final_content, order))
+                generated.append({'title': f'Lecture: {filename}', 'status': 'text_only'})
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': f'Generated {len(generated)} lecture(s)',
+            'data': generated
+        })
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ============================================================================
+# SENKU AUTONOMOUS TEACHING ENDPOINTS
+# ============================================================================
+
+@app.route('/api/sessions/<int:session_id>/process-materials', methods=['POST'])
+@login_required
+def process_session_materials_sse(session_id):
+    """Process uploaded materials through the Senku pipeline (SSE streaming)."""
+    def generate():
+        for chunk in senku_teaching.process_session_materials(session_id, db_path='auth.db'):
+            yield chunk
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.route('/api/sessions/<int:session_id>/teach', methods=['POST'])
+@login_required
+def start_session_teaching(session_id):
+    """Start autonomous teaching for a session (SSE streaming)."""
+    def generate():
+        for chunk in senku_teaching.start_teaching(session_id, db_path='auth.db'):
+            yield chunk
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.route('/api/sessions/<int:session_id>/teach/stop', methods=['POST'])
+@login_required
+def stop_session_teaching(session_id):
+    """Stop the active teaching session."""
+    senku_teaching.stop_teaching()
+    return jsonify({'success': True, 'message': 'Teaching stopped'})
+
+
+@app.route('/api/sessions/<int:session_id>/teach/pause', methods=['POST'])
+@login_required
+def pause_session_teaching(session_id):
+    """Pause/resume the active teaching session."""
+    paused = senku_teaching.pause_teaching()
+    return jsonify({'success': True, 'paused': paused})
+
+
+@app.route('/api/sessions/<int:session_id>/teaching-status', methods=['GET'])
+@login_required
+def get_session_teaching_status(session_id):
+    """Get current teaching status."""
+    status = senku_teaching.get_teaching_status()
+    return jsonify({'success': True, 'data': status})
+
+
+@app.route('/api/sessions/<int:session_id>/curriculum', methods=['GET'])
+@login_required
+def get_session_curriculum(session_id):
+    """Get the extracted curriculum for a session."""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        # Ensure columns exist
+        try:
+            cur.execute('SELECT pdf_hash, curriculum_json FROM teaching_sessions WHERE id = ?', (session_id,))
+        except Exception:
+            conn.close()
+            return jsonify({'success': True, 'data': {'pdf_hash': None, 'curriculum': None}})
+        
+        row = cur.fetchone()
+        conn.close()
+        
+        if not row:
+            return jsonify({'success': False, 'message': 'Session not found'}), 404
+        
+        pdf_hash, curriculum_json = row
+        curriculum = json.loads(curriculum_json) if curriculum_json else None
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'pdf_hash': pdf_hash,
+                'curriculum': curriculum,
+                'processed': pdf_hash is not None
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/sessions/<int:session_id>/lectures', methods=['GET'])
+@login_required
+def get_session_lectures(session_id):
+    """Get generated lectures for a session (teacher or student)"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT sl.id, sl.title, sl.content, sl.order_index, sm.filename
+            FROM session_lectures sl
+            LEFT JOIN session_materials sm ON sl.material_id = sm.id
+            WHERE sl.session_id = ?
+            ORDER BY sl.order_index
+        ''', (session_id,))
+        rows = cur.fetchall()
+        conn.close()
+
+        lectures = [{
+            'id': r[0], 'title': r[1], 'content': r[2],
+            'order': r[3], 'source_file': r[4]
+        } for r in rows]
+
+        return jsonify({'success': True, 'data': lectures})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/sessions/<int:session_id>/materials/<int:material_id>', methods=['DELETE'])
+@login_required
+def delete_session_material(session_id, material_id):
+    """Delete a material from a session"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        # Delete associated lectures
+        cur.execute('DELETE FROM session_lectures WHERE session_id = ? AND material_id = ?',
+                    (session_id, material_id))
+        # Delete material record
+        cur.execute('DELETE FROM session_materials WHERE id = ? AND session_id = ?',
+                    (material_id, session_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Material deleted'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/teacher/add-student', methods=['POST'])
+@login_required
+def teacher_add_student():
+    """Teacher adds a student - creates user account with default password"""
+    try:
+        # Support both JSON and multipart form-data
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            name = request.form.get('name')
+            email = request.form.get('email', '')
+            roll_no = request.form.get('roll_no', '')
+            student_class = request.form.get('student_class', '')
+            uploaded_files = request.files.getlist('photos')
+        else:
+            data = request.get_json()
+            name = data.get('name')
+            email = data.get('email', '')
+            roll_no = data.get('roll_no', '')
+            student_class = data.get('student_class', '')
+            uploaded_files = None  # will handle base64 photos below
+            photos_b64 = data.get('photos', [])
+        
+        if not name:
+            return jsonify({'success': False, 'message': 'Student name is required'}), 400
+        
+        # Generate username from name (lowercase, no spaces)
+        username = name.lower().replace(' ', '_')
+        default_password = 'student123'  # Default password - student can change later
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        # Check if username already exists, append number if so
+        base_username = username
+        counter = 1
+        while True:
+            cur.execute('SELECT id FROM users WHERE username = ?', (username,))
+            if not cur.fetchone():
+                break
+            username = f"{base_username}_{counter}"
+            counter += 1
+        
+        # Create user account
+        password_hash = generate_password_hash(default_password)
+        cur.execute('''
+            INSERT INTO users (username, password_hash, role, student_class, email, roll_no, full_name) 
+            VALUES (?, ?, 'student', ?, ?, ?, ?)
+        ''', (username, password_hash, student_class, email, roll_no, name))
+        user_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Also add to attendance.db students table if roll_no provided
+        if roll_no:
+            try:
+                att_conn = sqlite3.connect(attendance.DB_NAME)
+                att_cur = att_conn.cursor()
+                att_cur.execute('INSERT OR IGNORE INTO students (roll_number, name) VALUES (?, ?)', (roll_no, name))
+                att_conn.commit()
+                att_conn.close()
+            except Exception:
+                pass
+        
+        # Save face photos if provided
+        face_dir = os.path.join('faces', name)
+        if uploaded_files and len(uploaded_files) > 0:
+            # Multipart file uploads
+            os.makedirs(face_dir, exist_ok=True)
+            for idx, f in enumerate(uploaded_files):
+                try:
+                    img_path = os.path.join(face_dir, f'{name}_{idx+1}.jpg')
+                    f.save(img_path)
+                except Exception:
+                    pass
+        elif not uploaded_files and photos_b64 and len(photos_b64) > 0:
+            # Base64 photos from JSON (backward compat)
+            os.makedirs(face_dir, exist_ok=True)
+            for idx, photo_data in enumerate(photos_b64):
+                try:
+                    if ',' in photo_data:
+                        photo_data = photo_data.split(',')[1]
+                    img_bytes = base64.b64decode(photo_data)
+                    img_path = os.path.join(face_dir, f'{name}_{idx+1}.jpg')
+                    with open(img_path, 'wb') as f:
+                        f.write(img_bytes)
+                except Exception:
+                    pass
+        
+        return jsonify({
+            'success': True,
+            'message': f'Student added successfully. Username: {username}, Default Password: {default_password}',
+            'data': {
+                'id': user_id,
+                'username': username,
+                'name': name,
+                'email': email,
+                'roll_no': roll_no,
+                'student_class': student_class,
+                'default_password': default_password
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/teacher/students', methods=['GET'])
+@login_required
+def get_teacher_students():
+    """Get all students"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT id, username, student_class, role, email, roll_no, full_name
+            FROM users
+            WHERE role = 'student'
+            ORDER BY full_name, username
+        ''')
+        rows = cur.fetchall()
+        conn.close()
+        
+        students = []
+        for row in rows:
+            students.append({
+                'id': row[0],
+                'username': row[1],
+                'student_class': row[2],
+                'role': row[3],
+                'email': row[4] or '',
+                'roll_no': row[5] or '',
+                'name': row[6] or row[1]
+            })
+        
+        return jsonify({'success': True, 'data': students})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/teacher/students/<int:student_id>', methods=['PUT'])
+@login_required
+def update_teacher_student(student_id):
+    """Update a student record"""
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        student_class = data.get('student_class')
+        email = data.get('email')
+        roll_no = data.get('roll_no')
+        full_name = data.get('name')
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        updates = []
+        params = []
+        if username:
+            updates.append('username = ?')
+            params.append(username)
+        if student_class is not None:
+            updates.append('student_class = ?')
+            params.append(student_class)
+        if email is not None:
+            updates.append('email = ?')
+            params.append(email)
+        if roll_no is not None:
+            updates.append('roll_no = ?')
+            params.append(roll_no)
+        if full_name is not None:
+            updates.append('full_name = ?')
+            params.append(full_name)
+        
+        if updates:
+            params.append(student_id)
+            cur.execute(f'UPDATE users SET {", ".join(updates)} WHERE id = ? AND role = ?', params + ['student'])
+            conn.commit()
+        
+        conn.close()
+        return jsonify({'success': True, 'message': 'Student updated successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/teacher/students/<int:student_id>', methods=['DELETE'])
+@login_required
+def delete_teacher_student(student_id):
+    """Delete a student record"""
+    try:
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        cur.execute('DELETE FROM users WHERE id = ? AND role = ?', (student_id, 'student'))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Student deleted successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/teacher/attendance-logs', methods=['GET'])
+@login_required
+def get_teacher_attendance_logs():
+    """Get attendance logs filtered by class and session"""
+    try:
+        class_name = request.args.get('class_name', '')
+        sess_id = request.args.get('session_id', '')
+        
+        conn = sqlite3.connect('auth.db')
+        cur = conn.cursor()
+        
+        query = '''
+            SELECT sa.id, u.username, sa.status, sa.marked_at,
+                   ts.session_name, ts.class_name, ts.subject
+            FROM session_attendance sa
+            JOIN users u ON sa.student_id = u.id
+            JOIN teaching_sessions ts ON sa.session_id = ts.id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if class_name:
+            query += ' AND ts.class_name = ?'
+            params.append(class_name)
+        if sess_id:
+            query += ' AND sa.session_id = ?'
+            params.append(int(sess_id))
+        
+        query += ' ORDER BY ts.start_time DESC, u.username'
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        conn.close()
+        
+        logs = []
+        for row in rows:
+            logs.append({
+                'id': row[0],
+                'student_name': row[1],
+                'status': row[2],
+                'marked_at': row[3],
+                'session_name': row[4],
+                'class_name': row[5],
+                'subject': row[6]
+            })
+        
+        return jsonify({'success': True, 'data': logs})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/student/attendance', methods=['GET'])
 @login_required
@@ -4153,9 +5454,20 @@ def handle_leave_classroom(data):
 # END SOCKET.IO HANDLERS
 # ============================================================================
 
+# Serve React app for all non-API routes (must be registered LAST, at module level)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    # If path is a real file in the build folder, serve it
+    if path and os.path.exists(os.path.join(REACT_BUILD_DIR, path)):
+        return send_from_directory(REACT_BUILD_DIR, path)
+    # Otherwise serve index.html (React Router handles client-side routing)
+    return send_from_directory(REACT_BUILD_DIR, 'index.html')
+
 if __name__ == '__main__':
     # Initialize databases
     init_auth_db()
+    init_sessions_db()
     attendance.init_db()
     lecture.init_lecture_db()
     
@@ -4264,4 +5576,5 @@ if __name__ == '__main__':
     
     port = int(os.getenv('PORT', '5001'))
     print(f"🚀 Starting Flask-SocketIO server on port {port}")
-    socketio.run(app, debug=True, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
+    print(f"📱 Open http://localhost:{port} in your browser")
+    socketio.run(app, debug=True, use_reloader=False, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
